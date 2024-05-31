@@ -114,6 +114,7 @@ In the Application you should see the event recieved that the order moving forwa
 
 # Resources and references
 
+- [Dapr For Java Developers](https://dzone.com/articles/dapr-for-java-developers)
 - [Platform engineering on Kubernetes Book](http://mng.bz/jjKP?ref=salaboy.com)
 - [Testcontainers for Go Developers](https://www.atomicjar.com/2023/08/local-development-of-go-applications-with-testcontainers/)
 - [Cloud native local development with Dapr and Testcontainers](https://www.diagrid.io/blog/cloud-native-local-development)
