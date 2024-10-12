@@ -8,13 +8,17 @@
     ":automergePr",
     ":automergeRequireAllStatusChecks",
     ":prConcurrentLimitNone",
-    ":separatePatchReleases"
+    ":separatePatchReleases",
+    "group:springBoot",
+    "group:springCore"
   ],
   "enabledManagers": [
-    "maven"
+    "maven",
+    "github-actions"
   ],
   "commitMessagePrefix": "chore(all): ",
   "commitMessageAction": "update",
+  "commitBody": "Signed-off-by: Renovate Bot <bot@renovateapp.com>",
   "platformAutomerge": true,
   "packageRules": [
     {
