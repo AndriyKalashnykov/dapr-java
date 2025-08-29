@@ -21,10 +21,11 @@
     "maven",
     "github-actions"
   ],
+  "prConcurrentLimit": 2,
+  "platformAutomerge": true,
   "commitMessagePrefix": "chore(all): ",
   "commitMessageAction": "update",
   "commitBody": "Signed-off-by: Renovate Bot <bot@renovateapp.com>",
-  "platformAutomerge": true,
   "packageRules": [
     {
       "description": "Automerge non-major updates",
@@ -34,7 +35,55 @@
       ],
       "automerge": true,
       "automergeType": "pr",
-      "platformAutomerge": true
+      "platformAutomerge": true,
+      "matchCategories": [
+        "java"
+      ],
+      "addLabels": [
+        "lang: java"
+      ]
+    },
+    {
+      "groupName": "Apache commons",
+      "description": "All apache commons grouped into one PR",
+      "matchPackageNames": [
+        "commons-io:commons-io",
+        "org.apache.commons:*"
+      ]
+    },
+    {
+      "groupName": "annotations",
+      "matchPackageNames": [
+        "com.google.errorprone:*",
+        "net.jcip:jcip-annotations",
+        "org.checkerframework:checker-qual",
+        "org.jetbrains:annotations",
+        "org.jspecify:jspecify"
+      ]
+    },
+    {
+      "groupName": "GitHub Actions",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "extends": [
+        "schedule:daily"
+      ],
+      "automerge": true
     }
-  ]
+  ],
+  "labels": [
+    "automerge",
+    "dependencies"
+  ],
+  "dependencyDashboard": true,
+  "dependencyDashboardLabels": [
+    "type: process"
+  ],
+  "vulnerabilityAlerts": {
+    "labels": [
+      "type:security"
+    ],
+    "minimumReleaseAge": null
+  }
 }
