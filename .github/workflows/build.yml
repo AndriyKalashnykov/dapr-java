@@ -19,7 +19,7 @@ jobs:
     strategy:
 
       matrix:
-        java: [ '11', '18', '25' ]
+        java: [ '17' ]
         java-distro: [ 'temurin' ]
 
     steps:
