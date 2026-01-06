@@ -111,7 +111,7 @@ build:
 # mvn org.owasp:dependency-check-maven:12.1.3:check -DnvdApiKey=${NVD_API_KEY}
 #cve-check: @ Run dependencies check for publicly disclosed vulnerabilities in application dependencies
 cve-check:
-	@mvn dependency-check:check # -DnvdApiKey==${NVD_API_KEY}
+	@mvn dependency-check:check -DnvdApiKey==${NVD_API_KEY}
 
 #coverage-generate: @ Generate code coverage report
 coverage-generate:
