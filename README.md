@@ -41,7 +41,7 @@ Then we will install [Dapr](https://dapr.io) into our fresh new cluster by runni
 helm repo add dapr https://dapr.github.io/helm-charts/
 helm repo update
 helm upgrade --install dapr dapr/dapr \
---version=1.13.2 \
+--version=1.15.3 \
 --namespace dapr-system \
 --create-namespace \
 --wait
@@ -88,7 +88,13 @@ Then you can point your browser to [`http://localhost:8080`](http://localhost:80
 
 ## Building from source / changing the services
 
-The application services are written using Java + Spring Boot. These services use the Dapr Java SDK to interact with the Dapr [PubSub](https://docs.dapr.io/getting-started/quickstarts/pubsub-quickstart/) and [Statestore](https://docs.dapr.io/getting-started/quickstarts/statemanagement-quickstart/) APIs. 
+The application services are written using Java 21 + Spring Boot 4. These services use the [Dapr Java SDK](https://github.com/dapr/java-sdk) to interact with the Dapr [PubSub](https://docs.dapr.io/getting-started/quickstarts/pubsub-quickstart/) and [Statestore](https://docs.dapr.io/getting-started/quickstarts/statemanagement-quickstart/) APIs.
+
+### Prerequisites
+
+- JDK 21+
+- [Maven](https://maven.apache.org/) 3.9+
+- [Docker](https://www.docker.com/) (for running integration tests with Testcontainers)
 
 To build, test, and manage the project you can use the included Makefile. Run `make help` to see all available targets:
 
