@@ -8,6 +8,7 @@ import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.Testcontainers;
+import org.testcontainers.containers.Network;
 import org.wiremock.integrations.testcontainers.WireMockContainer;
 
 import io.dapr.testcontainers.DaprContainer;
@@ -29,6 +30,7 @@ public class PizzaStoreTest {
     }
 
     static DaprContainer dapr = new DaprContainer(DaprContainer.getDefaultImageName())
+            .withNetwork(Network.SHARED)
             .withAppName("local-dapr-app")
             .withAppPort(8080)
             .withAppChannelAddress("host.testcontainers.internal");
