@@ -2,7 +2,7 @@
 
 This repository contains a simple example for a Pizza Store application using Kubernetes, [Dapr](https://dapr.io), [Spring Boot](https://spring.io/projects/spring-boot) and [Testcontainers](https://testcontainers.com) to enable developers with an awesome developer experience. [You can find a Quarkus implementation of this application here (Thanks to @mcruzdev1!)](https://github.com/mcruzdev/pizza-quarkus)
 
-You can run this application on any Kubernetes cluster by following the step-by-step insturctions described in this document. You can also start each service using just Maven.
+You can run this application on any Kubernetes cluster by following the step-by-step instructions described in this document. You can also start each service using just Maven.
 
 ![Pizza Store](imgs/pizza-store.png)
 
@@ -90,15 +90,21 @@ Then you can point your browser to [`http://localhost:8080`](http://localhost:80
 
 The application services are written using Java + Spring Boot. These services use the Dapr Java SDK to interact with the Dapr [PubSub](https://docs.dapr.io/getting-started/quickstarts/pubsub-quickstart/) and [Statestore](https://docs.dapr.io/getting-started/quickstarts/statemanagement-quickstart/) APIs. 
 
-To run the services locally you can use the [Testcontainer](https://testcontainaers.com) integration already included in the projects. 
-
-For example you can start a local version of the `pizza-store` service by running the following command inside the `pizza-store/` directory (this requires having Java and [Maven](https://maven.apache.org/) installed locally):
+To build, test, and manage the project you can use the included Makefile. Run `make help` to see all available targets:
 
 ```
-mvn spring-boot:test-run
+make build              # Build all modules
+make test               # Run all tests (requires Docker for Testcontainers)
+make clean              # Clean build artifacts
+make cve-check          # Run OWASP dependency vulnerability check
+make coverage-generate  # Generate JaCoCo code coverage report
+make coverage-check     # Verify coverage meets minimum threshold (>70%)
+make coverage-open      # Open coverage reports in browser
+make print-deps-updates # Show available dependency updates
+make update-deps        # Update dependencies to latest releases
 ```
 
-This, not only start the `pizza-store` service, but it also uses the [Testcontainers + Dapr Spring Boot](https://central.sonatype.com/artifact/io.diagrid.dapr/dapr-spring-boot-starter) integration to configure and wire up a Dapr configuration for local development. In other words, you can now use Dapr outside of Kubernetes, for writing your service tests without the need to know how Dapr is configured. 
+Tests use [Testcontainers](https://testcontainers.com) with [`io.dapr:testcontainers-dapr`](https://central.sonatype.com/artifact/io.dapr/testcontainers-dapr) to automatically start Dapr sidecars and placement services. This means you can run integration tests outside of Kubernetes without any manual Dapr setup — just Docker.
 
 
 Once the service is up, you can place orders and simulate other events coming from the Kitchen and Delivery services by sending HTTP requests to the `/events` endpoint. 
@@ -109,7 +115,7 @@ Using [`httpie`](https://httpie.io/) this look like this:
 http :8080/events Content-Type:application/cloudevents+json < pizza-store/event-in-prep.json
 ```
 
-In the Application you should see the event recieved that the order moving forward. 
+In the Application you should see the event received and the order moving forward.
 
 
 # Resources and references

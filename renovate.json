@@ -2,18 +2,14 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:best-practices",
-    ":approveMajorUpdates",
     ":label(dependencies)",
     ":semanticCommitType(chore)",
     "docker:pinDigests",
     "helpers:pinGitHubActionDigests",
     ":dependencyDashboard",
     "schedule:daily",
-    ":automergePatch",
     ":automergePr",
     ":automergeRequireAllStatusChecks",
-    ":prConcurrentLimitNone",
-    ":separatePatchReleases",
     "group:springBoot",
     "group:springCore"
   ],
@@ -21,21 +17,15 @@
     "maven",
     "github-actions"
   ],
-  "prConcurrentLimit": 2,
+  "automerge": true,
   "platformAutomerge": true,
+  "prConcurrentLimit": 2,
   "commitMessagePrefix": "chore(all): ",
   "commitMessageAction": "update",
   "commitBody": "Signed-off-by: Renovate Bot <bot@renovateapp.com>",
   "packageRules": [
     {
-      "description": "Automerge non-major updates",
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "automerge": true,
-      "automergeType": "pr",
-      "platformAutomerge": true,
+      "description": "Label Java packages",
       "matchCategories": [
         "java"
       ],
@@ -65,11 +55,7 @@
       "groupName": "GitHub Actions",
       "matchManagers": [
         "github-actions"
-      ],
-      "extends": [
-        "schedule:daily"
-      ],
-      "automerge": true
+      ]
     }
   ],
   "labels": [
