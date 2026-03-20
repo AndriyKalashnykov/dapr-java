@@ -1,22 +1,21 @@
 package io.diagrid.dapr;
 
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.Testcontainers;
-import org.testcontainers.junit.jupiter.Container;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
-
-import java.util.Collections;
 
 import io.dapr.client.domain.CloudEvent;
 import io.dapr.testcontainers.Component;
@@ -32,15 +31,14 @@ import io.restassured.http.ContentType;
 import static io.restassured.RestAssured.*;
 
 @SpringBootTest(classes = PizzaKitchenAppTest.class, webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
-@org.testcontainers.junit.jupiter.Testcontainers
+@ImportTestcontainers
 public class PizzaKitchenTest {
 
     static {
         Testcontainers.exposeHostPorts(8080);
     }
 
-    @Container
-    static DaprContainer dapr = new DaprContainer("daprio/daprd")
+    static DaprContainer dapr = new DaprContainer(DaprContainer.getDefaultImageName())
             .withAppName("local-dapr-app")
             .withAppPort(8080)
             .withAppChannelAddress("host.testcontainers.internal")
@@ -53,8 +51,8 @@ public class PizzaKitchenTest {
         registry.add("dapr.http.port", dapr::getHttpPort);
     }
 
-    @BeforeAll
-    static void setSystemProperties() {
+    @BeforeEach
+    void setSystemProperties() {
         System.setProperty("dapr.grpc.port", String.valueOf(dapr.getGrpcPort()));
         System.setProperty("dapr.http.port", String.valueOf(dapr.getHttpPort()));
     }

@@ -1,14 +1,13 @@
 package io.diagrid.dapr;
 
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.Testcontainers;
-import org.testcontainers.junit.jupiter.Container;
 import org.wiremock.integrations.testcontainers.WireMockContainer;
 
 import io.dapr.testcontainers.DaprContainer;
@@ -22,20 +21,18 @@ import static io.restassured.RestAssured.with;
 import java.util.Arrays;
 
 @SpringBootTest(classes = PizzaStoreAppTest.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@org.testcontainers.junit.jupiter.Testcontainers
+@ImportTestcontainers
 public class PizzaStoreTest {
 
     static {
         Testcontainers.exposeHostPorts(8080);
     }
 
-    @Container
-    static DaprContainer dapr = new DaprContainer("daprio/daprd")
+    static DaprContainer dapr = new DaprContainer(DaprContainer.getDefaultImageName())
             .withAppName("local-dapr-app")
             .withAppPort(8080)
             .withAppChannelAddress("host.testcontainers.internal");
 
-    @Container
     static WireMockContainer wireMock = new WireMockContainer("wiremock/wiremock:3.1.0")
             .withMappingFromResource("kitchen", "kitchen-service-stubs.json");
 
@@ -46,8 +43,8 @@ public class PizzaStoreTest {
         registry.add("dapr-http.base-url", wireMock::getBaseUrl);
     }
 
-    @BeforeAll
-    static void setSystemProperties() {
+    @BeforeEach
+    void setSystemProperties() {
         System.setProperty("dapr.grpc.port", String.valueOf(dapr.getGrpcPort()));
         System.setProperty("dapr.http.port", String.valueOf(dapr.getHttpPort()));
     }

@@ -19,19 +19,19 @@
     </modules>
 
     <properties>
-        <java.version>17</java.version>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <java.version>21</java.version>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-boot.version>4.0.4</spring-boot.version>
-        <dapr-spring-boot.version>0.10.7</dapr-spring-boot.version>
+        <dapr.version>1.17.0</dapr.version>
         <opentelemetry.version>1.60.1</opentelemetry.version>
         <opentelemetry-instrumentation.version>2.26.0-alpha</opentelemetry-instrumentation.version>
         <rest-assured.version>6.0.0</rest-assured.version>
         <hamcrest.version>3.0</hamcrest.version>
         <wiremock-testcontainers.version>1.0-alpha-15</wiremock-testcontainers.version>
-        <testcontainers-dapr.version>0.14.1</testcontainers-dapr.version>
-        <grpc.version>1.69.0</grpc.version>
+        <testcontainers-dapr.version>${dapr.version}</testcontainers-dapr.version>
+        <grpc.version>1.79.0</grpc.version>
         <protobuf-java.version>3.25.5</protobuf-java.version>
     </properties>
 
@@ -59,9 +59,9 @@
                 <scope>import</scope>
             </dependency>
             <dependency>
-                <groupId>io.diagrid.dapr</groupId>
-                <artifactId>dapr-spring-boot-starter</artifactId>
-                <version>${dapr-spring-boot.version}</version>
+                <groupId>io.dapr.spring</groupId>
+                <artifactId>dapr-spring-boot-4-starter</artifactId>
+                <version>${dapr.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.rest-assured</groupId>
