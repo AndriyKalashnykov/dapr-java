@@ -25,6 +25,10 @@ import java.util.Arrays;
 @org.testcontainers.junit.jupiter.Testcontainers
 public class PizzaStoreTest {
 
+    static {
+        Testcontainers.exposeHostPorts(8080);
+    }
+
     @Container
     static DaprContainer dapr = new DaprContainer("daprio/daprd")
             .withAppName("local-dapr-app")
@@ -37,7 +41,6 @@ public class PizzaStoreTest {
 
     @DynamicPropertySource
     static void daprProperties(DynamicPropertyRegistry registry) {
-        Testcontainers.exposeHostPorts(8080);
         registry.add("dapr.grpc.port", dapr::getGrpcPort);
         registry.add("dapr.http.port", dapr::getHttpPort);
         registry.add("dapr-http.base-url", wireMock::getBaseUrl);

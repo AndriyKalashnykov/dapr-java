@@ -35,6 +35,10 @@ import static io.restassured.RestAssured.*;
 @org.testcontainers.junit.jupiter.Testcontainers
 public class PizzaDeliveryTest {
 
+    static {
+        Testcontainers.exposeHostPorts(8080);
+    }
+
     @Container
     static DaprContainer dapr = new DaprContainer("daprio/daprd")
             .withAppName("local-dapr-app")
@@ -45,7 +49,6 @@ public class PizzaDeliveryTest {
 
     @DynamicPropertySource
     static void daprProperties(DynamicPropertyRegistry registry) {
-        Testcontainers.exposeHostPorts(8080);
         registry.add("dapr.grpc.port", dapr::getGrpcPort);
         registry.add("dapr.http.port", dapr::getHttpPort);
     }
