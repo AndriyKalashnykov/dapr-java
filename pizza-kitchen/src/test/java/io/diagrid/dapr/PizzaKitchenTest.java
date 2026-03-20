@@ -16,8 +16,12 @@ import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 
+import java.util.Collections;
+
 import io.dapr.client.domain.CloudEvent;
+import io.dapr.testcontainers.Component;
 import io.dapr.testcontainers.DaprContainer;
+import io.dapr.testcontainers.Subscription;
 import io.diagrid.dapr.PizzaKitchen.Event;
 import io.diagrid.dapr.PizzaKitchen.EventType;
 import io.diagrid.dapr.PizzaKitchen.Order;
@@ -35,7 +39,9 @@ public class PizzaKitchenTest {
     static DaprContainer dapr = new DaprContainer("daprio/daprd")
             .withAppName("local-dapr-app")
             .withAppPort(8080)
-            .withAppChannelAddress("host.testcontainers.internal");
+            .withAppChannelAddress("host.testcontainers.internal")
+            .withComponent(new Component("pubsub", "pubsub.in-memory", "v1", Collections.emptyMap()))
+            .withSubscription(new Subscription("subscription", "pubsub", "topic", "/events"));
 
     @DynamicPropertySource
     static void daprProperties(DynamicPropertyRegistry registry) {
