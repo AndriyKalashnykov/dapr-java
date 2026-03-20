@@ -54,6 +54,8 @@ public class PizzaDeliveryTest {
     static void setSystemProperties() {
         System.setProperty("dapr.grpc.port", String.valueOf(dapr.getGrpcPort()));
         System.setProperty("dapr.http.port", String.valueOf(dapr.getHttpPort()));
+        System.setProperty("dapr.api.protocol", "HTTP");
+        System.setProperty("dapr.api.methodInvocation.protocol", "HTTP");
     }
 
     @Autowired
