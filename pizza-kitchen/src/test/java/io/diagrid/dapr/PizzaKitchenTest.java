@@ -7,10 +7,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.Testcontainers;
-import org.testcontainers.containers.Network;
-
 import static org.junit.jupiter.api.Assertions.*;
+
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -35,15 +33,11 @@ import static io.restassured.RestAssured.*;
 @ImportTestcontainers
 public class PizzaKitchenTest {
 
-    static {
-        Testcontainers.exposeHostPorts(8080);
-    }
-
     static DaprContainer dapr = new DaprContainer(DaprContainer.getDefaultImageName())
-            .withNetwork(Network.SHARED)
             .withAppName("local-dapr-app")
             .withAppPort(8080)
             .withAppChannelAddress("host.testcontainers.internal")
+            .withExtraHost("host.testcontainers.internal", "host-gateway")
             .withComponent(new Component("pubsub", "pubsub.in-memory", "v1", Collections.emptyMap()))
             .withSubscription(new Subscription("subscription", "pubsub", "topic", "/events"));
 

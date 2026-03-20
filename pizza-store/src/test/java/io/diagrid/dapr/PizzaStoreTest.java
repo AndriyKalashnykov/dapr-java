@@ -7,8 +7,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.Testcontainers;
-import org.testcontainers.containers.Network;
 import org.wiremock.integrations.testcontainers.WireMockContainer;
 
 import io.dapr.testcontainers.DaprContainer;
@@ -25,15 +23,11 @@ import java.util.Arrays;
 @ImportTestcontainers
 public class PizzaStoreTest {
 
-    static {
-        Testcontainers.exposeHostPorts(8080);
-    }
-
     static DaprContainer dapr = new DaprContainer(DaprContainer.getDefaultImageName())
-            .withNetwork(Network.SHARED)
             .withAppName("local-dapr-app")
             .withAppPort(8080)
-            .withAppChannelAddress("host.testcontainers.internal");
+            .withAppChannelAddress("host.testcontainers.internal")
+            .withExtraHost("host.testcontainers.internal", "host-gateway");
 
     static WireMockContainer wireMock = new WireMockContainer("wiremock/wiremock:3.1.0")
             .withMappingFromResource("kitchen", "kitchen-service-stubs.json");
