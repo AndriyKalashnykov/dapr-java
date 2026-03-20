@@ -57,8 +57,6 @@ public class PizzaKitchenTest {
     static void setSystemProperties() {
         System.setProperty("dapr.grpc.port", String.valueOf(dapr.getGrpcPort()));
         System.setProperty("dapr.http.port", String.valueOf(dapr.getHttpPort()));
-        System.setProperty("dapr.api.protocol", "HTTP");
-        System.setProperty("dapr.api.methodInvocation.protocol", "HTTP");
     }
 
     @Autowired
@@ -74,8 +72,8 @@ public class PizzaKitchenTest {
         .request("PUT", "/prepare")
         .then().assertThat().statusCode(200);
 
-        // Wait for the event to arrive
-        Thread.sleep(17000);
+        // Wait for events: 5s initial delay + up to 15s random prep + delivery margin
+        Thread.sleep(25000);
 
         List<CloudEvent<Event>> events = subscriptionsRestController.getAllEvents();
         assertEquals(2, events.size(), "Two published event are expected");
