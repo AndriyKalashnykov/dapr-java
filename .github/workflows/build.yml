@@ -33,5 +33,8 @@ jobs:
         distribution: ${{ env.JAVA_DISTRO }}
         cache: 'maven'
 
-    - name: Build and compile tests
-      run: mvn -B package test-compile -Dmaven.test.skip=true -Ddependency-check.skip=true
+    - name: Build
+      run: mvn -B package -Dmaven.test.skip=true -Ddependency-check.skip=true
+
+    - name: Integration Tests
+      run: mvn -B test -Ddependency-check.skip=true
