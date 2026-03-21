@@ -168,7 +168,7 @@ spec:
           value: http://pizza-store-dapr.default.svc.cluster.local:3500
         - name: DAPR_GRPC_ENDPOINT
           value: http://pizza-store-dapr.default.svc.cluster.local:50001
-        - name: STATESTORE_NAME
+        - name: STATE_STORE_NAME
           value: kvstore
         livenessProbe:
           httpGet:
