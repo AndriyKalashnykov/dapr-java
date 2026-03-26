@@ -34,7 +34,7 @@ jobs:
         cache: 'maven'
 
     - name: Build
-      run: mvn -B package -Dmaven.test.skip=true -Ddependency-check.skip=true
+      run: make build
 
     - name: Integration Tests
-      run: mvn -B test -Ddependency-check.skip=true
+      run: make test

@@ -67,6 +67,8 @@ else
 	endif
 endif
 
+.PHONY: help deps deps-check env-check clean test build lint run ci cve-check coverage-generate coverage-check coverage-open print-deps-updates update-deps release
+
 #help: @ List available tasks on this project
 help:
 	@clear
@@ -76,7 +78,10 @@ help:
 	@echo
 	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-18s\033[0m - %s\n", $$1, $$2}'
 
-build-deps-check:
+#deps: @ Install build dependencies via SDKMAN
+deps:
+	@command -v curl >/dev/null 2>&1 || { echo "curl is required but not installed."; exit 1; }
+	@command -v bash >/dev/null 2>&1 || { echo "bash is required but not installed."; exit 1; }
 	@if [ ! -f "$(SDKMAN)" ]; then \
 		echo "Installing SDKMAN..."; \
 		curl -s "https://get.sdkman.io?rcupdate=false" | bash; \
@@ -84,24 +89,40 @@ build-deps-check:
 	@. $(SDKMAN) && echo N | sdk install java $(JAVA_VER) && sdk use java $(JAVA_VER)
 	@. $(SDKMAN) && echo N | sdk install maven $(MAVEN_VER) && sdk use maven $(MAVEN_VER)
 
-#check-env: @ Check installed tools
-check-env: build-deps-check
+#deps-check: @ Verify build dependencies are installed
+deps-check:
+	@command -v java >/dev/null 2>&1 || { echo "java is required but not installed."; exit 1; }
+	@command -v mvn >/dev/null 2>&1 || { echo "mvn is required but not installed."; exit 1; }
+	@echo "All build dependencies are available."
 
+#env-check: @ Check installed tools
+env-check: deps-check
 	@printf "\xE2\x9C\x94 "
-	$(SDKMAN_EXISTS)
+	@$(SDKMAN_EXISTS)
 	@printf "\n"
 
 #clean: @ Cleanup
 clean:
-	@ mvn clean
+	@mvn clean
 
 #test: @ Run project tests
 test: build
-	@ mvn test -Ddependency-check.skip=true
+	@mvn test -Ddependency-check.skip=true
 
 #build: @ Build project
 build:
-	@ mvn package install -Dmaven.test.skip=true -Ddependency-check.skip=true
+	@mvn package install -Dmaven.test.skip=true -Ddependency-check.skip=true
+
+#lint: @ Run static analysis checks
+lint:
+	@mvn checkstyle:check -Ddependency-check.skip=true
+
+#run: @ Run the application
+run: build
+	@mvn spring-boot:run -Ddependency-check.skip=true
+
+#ci: @ Run full CI pipeline (clean, build, test)
+ci: clean build test
 
 # mvn org.owasp:dependency-check-maven:12.1.3:check -DnvdApiKey=${NVD_API_KEY}
 #cve-check: @ Run dependencies check for publicly disclosed vulnerabilities in application dependencies
@@ -110,15 +131,15 @@ cve-check:
 
 #coverage-generate: @ Generate code coverage report
 coverage-generate:
-	@ mvn test -Ddependency-check.skip=true jacoco:report
+	@mvn test -Ddependency-check.skip=true jacoco:report
 
 #coverage-check: @ Verify code coverage meets minimum threshold ( > 70%)
 coverage-check:
-	@ mvn jacoco:check
+	@mvn jacoco:check
 
 #coverage-open: @ Open code coverage report
 coverage-open:
-	@ for dir in pizza-store pizza-kitchen pizza-delivery; do \
+	@for dir in pizza-store pizza-kitchen pizza-delivery; do \
 		if [ -f "./$$dir/target/site/jacoco/index.html" ]; then \
 			$(if $(filter 1,$(IS_DARWIN)),open,xdg-open) "./$$dir/target/site/jacoco/index.html"; \
 		fi; \
@@ -126,9 +147,23 @@ coverage-open:
 
 #print-deps-updates: @ Print project dependencies updates
 print-deps-updates:
-	@ mvn versions:display-dependency-updates
+	@mvn versions:display-dependency-updates
 
 #update-deps: @ Update project dependencies to latest releases
 update-deps: print-deps-updates
-	@ mvn versions:use-latest-releases
-	@ mvn versions:commit
+	@mvn versions:use-latest-releases
+	@mvn versions:commit
+
+#release: @ Create a release tag with semver validation (usage: make release VERSION=x.y.z)
+release:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Error: VERSION is required. Usage: make release VERSION=x.y.z"; \
+		exit 1; \
+	fi
+	@if ! echo "$(VERSION)" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$'; then \
+		echo "Error: VERSION must follow semver format (x.y.z). Got: $(VERSION)"; \
+		exit 1; \
+	fi
+	@echo "Creating release tag v$(VERSION)..."
+	@git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
+	@echo "Release tag v$(VERSION) created. Push with: git push origin v$(VERSION)"
