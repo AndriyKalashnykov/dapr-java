@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
@@ -37,20 +36,21 @@ public class PizzaStore {
   @Value("${DAPR_HTTP_ENDPOINT:http://localhost:3500}")
   private String daprHttp;
 
-  @Value("${STATE_STORE_NAME:kvstore}")
-  private String STATE_STORE_NAME;
-  
+  @Value("${stateStoreName:kvstore}")
+  private String stateStoreName;
+
   @Value("${PUBLIC_IP:localhost}")
   private String publicIp;
 
   @GetMapping("/server-info")
-  public Info getInfo(){
+  public Info getInfo() {
     return new Info(publicIp);
   }
 
-  public record Info(String publicIp){}
+  public record Info(String publicIp) {
+  }
 
-  private String KEY = "orders";
+  private String key = "orders";
   private static RestTemplate restTemplate;
 
   private final SimpMessagingTemplate simpMessagingTemplate;
@@ -69,7 +69,7 @@ public class PizzaStore {
     emitWSEvent(event.getData());
     System.out.println("Received CloudEvent via Subscription: " + event.toString());
     Event pizzaEvent = event.getData();
-    if(pizzaEvent.type.equals(EventType.ORDER_READY)){
+    if (pizzaEvent.type.equals(EventType.ORDER_READY)) {
       prepareOrderForDelivery(pizzaEvent.order);
     }
   }
@@ -80,9 +80,9 @@ public class PizzaStore {
         event);
   }
 
-  private void prepareOrderForDelivery(Order order){
+  private void prepareOrderForDelivery(Order order) {
     store(new Order(order.id, order.customer, order.items, order.orderDate, Status.delivery));
-     // Emit Event
+    // Emit Event
     Event event = new Event(EventType.ORDER_OUT_FOR_DELIVERY, order, "store", "Delivery in progress.");
     emitWSEvent(event);
 
@@ -126,7 +126,10 @@ public class PizzaStore {
   }
 
   public enum PizzaType {
-    pepperoni, margherita, hawaiian, vegetarian, kubernetescheese, daprcheese, clustertomatoes, diagridpepperoni, distributedolives, opensauce, workflowspread, plantbasedobservability, bindingsbacon
+    pepperoni, margherita, hawaiian, vegetarian,
+    kubernetescheese, daprcheese, clustertomatoes,
+    diagridpepperoni, distributedolives, opensauce,
+    workflowspread, plantbasedobservability, bindingsbacon
   }
 
   public enum Status {
@@ -205,13 +208,13 @@ public class PizzaStore {
   private void store(Order order) {
     try (DaprClient client = (new DaprClientBuilder()).build()) {
       Orders orders = new Orders(new ArrayList<Order>());
-      State<Orders> ordersState = client.getState(STATE_STORE_NAME, KEY, null, Orders.class).block();
+      State<Orders> ordersState = client.getState(stateStoreName, key, null, Orders.class).block();
       if (ordersState.getValue() != null && ordersState.getValue().orders.isEmpty()) {
         orders.orders.addAll(ordersState.getValue().orders);
       }
       orders.orders.add(order);
       // Save state
-      client.saveState(STATE_STORE_NAME, KEY, orders).block();
+      client.saveState(stateStoreName, key, orders).block();
 
     } catch (Exception ex) {
       ex.printStackTrace();
@@ -242,7 +245,7 @@ public class PizzaStore {
 
   private Orders loadOrders() {
     try (DaprClient client = (new DaprClientBuilder()).build()) {
-      State<Orders> ordersState = client.getState(STATE_STORE_NAME, KEY, null, Orders.class).block();
+      State<Orders> ordersState = client.getState(stateStoreName, key, null, Orders.class).block();
       return ordersState.getValue();
 
     } catch (Exception ex) {

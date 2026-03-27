@@ -1,7 +1,9 @@
 package io.diagrid.dapr;
+
+import static java.util.Collections.singletonMap;
+
 import java.util.Date;
 import java.util.List;
-import static java.util.Collections.singletonMap;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
@@ -23,27 +25,28 @@ import io.dapr.client.domain.Metadata;
 public class PizzaDelivery {
 
   private static final String MESSAGE_TTL_IN_SECONDS = "1000";
-  
+  private static final int DELIVERY_STAGE_DELAY_MS = 3000;
+
   @Value("${PUB_SUB_NAME:pubsub}")
-  private String PUB_SUB_NAME;
+  private String pubSubName;
   @Value("${PUB_SUB_TOPIC:topic}")
-  private String PUB_SUB_TOPIC;
+  private String pubSubTopic;
 
   public static void main(String[] args) {
     SpringApplication.run(PizzaDelivery.class, args);
   }
 
   @PutMapping("/deliver")
-  public ResponseEntity deliverOrder(@RequestBody(required=true) Order order){
+  public ResponseEntity deliverOrder(@RequestBody(required = true) Order order) {
     new Thread(new Runnable() {
       @Override
       public void run() {
-           // Emit Event
-          Event event = new Event(EventType.ORDER_ON_ITS_WAY, order, "delivery", "The order is on its way to your address.");
+          Event event = new Event(EventType.ORDER_ON_ITS_WAY, order,
+              "delivery", "The order is on its way to your address.");
           emitEvent(event);
 
           try {
-            Thread.sleep(3000);
+            Thread.sleep(DELIVERY_STAGE_DELAY_MS);
           } catch (InterruptedException e) {
             e.printStackTrace();
           }
@@ -52,7 +55,7 @@ public class PizzaDelivery {
           emitEvent(event);
 
           try {
-            Thread.sleep(3000);
+            Thread.sleep(DELIVERY_STAGE_DELAY_MS);
           } catch (InterruptedException e) {
             e.printStackTrace();
           }
@@ -61,20 +64,18 @@ public class PizzaDelivery {
           emitEvent(event);
 
           try {
-            Thread.sleep(3000);
+            Thread.sleep(DELIVERY_STAGE_DELAY_MS);
           } catch (InterruptedException e) {
             e.printStackTrace();
           }
 
           event = new Event(EventType.ORDER_COMPLETED, order, "delivery", "Your order has been delivered.");
           emitEvent(event);
-         
       }
     }).start();
 
     return ResponseEntity.ok().build();
   }
-
 
   public record Event(EventType type, Order order, String service, String message) {
   }
@@ -101,8 +102,9 @@ public class PizzaDelivery {
       return type;
     }
   }
-  
-  public record Order(@JsonProperty String id, @JsonProperty List<OrderItem> items, @JsonProperty Date orderDate) {
+
+  public record Order(@JsonProperty String id, @JsonProperty List<OrderItem> items,
+      @JsonProperty Date orderDate) {
   }
 
   public record OrderItem(@JsonProperty PizzaType type, @JsonProperty int amount) {
@@ -111,17 +113,16 @@ public class PizzaDelivery {
   public enum PizzaType {
     pepperoni, margherita, hawaiian, vegetarian
   }
-  
+
   private void emitEvent(Event event) {
-    System.out.println("> Emitting Delivery Event: "+ event.toString());
+    System.out.println("> Emitting Delivery Event: " + event.toString());
     try (DaprClient client = (new DaprClientBuilder()).build()) {
-      client.publishEvent(PUB_SUB_NAME,
-          PUB_SUB_TOPIC,
+      client.publishEvent(pubSubName,
+          pubSubTopic,
           event,
           singletonMap(Metadata.TTL_IN_SECONDS, MESSAGE_TTL_IN_SECONDS)).block();
     } catch (Exception ex) {
       ex.printStackTrace();
     }
   }
-  
 }
