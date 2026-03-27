@@ -16,7 +16,10 @@ import io.diagrid.dapr.PizzaStore.OrderItem;
 import io.diagrid.dapr.PizzaStore.PizzaType;
 import io.restassured.RestAssured;
 import io.restassured.http.ContentType;
+import static io.restassured.RestAssured.get;
 import static io.restassured.RestAssured.with;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.notNullValue;
 import java.util.Arrays;
 
 @SpringBootTest(classes = PizzaStoreAppTest.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -61,5 +64,77 @@ public class PizzaStoreTest {
         .when()
         .request("POST", "/order")
         .then().assertThat().statusCode(200);
+    }
+
+    @Test
+    public void testGetServerInfo() {
+        get("/server-info")
+            .then()
+            .assertThat()
+            .statusCode(200)
+            .body("publicIp", notNullValue());
+    }
+
+    @Test
+    public void testGetOrders() {
+        get("/order")
+            .then()
+            .assertThat()
+            .statusCode(200);
+    }
+
+    @Test
+    public void testReceiveEvent() {
+        String cloudEvent = """
+            {
+                "specversion": "1.0",
+                "type": "com.salaboy.event",
+                "data": {
+                    "type": "order-in-preparation",
+                    "service": "kitchen",
+                    "message": "Your Order is in the kitchen.",
+                    "order": {
+                        "customer": {"name": "salaboy", "email": "salaboy@mail.com"},
+                        "items": [{"type": "pepperoni", "amount": 1}],
+                        "id": "test-order-1",
+                        "orderDate": "2023-10-31T18:13:55.571+00:00",
+                        "status": "inpreparation"
+                    }
+                }
+            }
+            """;
+
+        with().body(cloudEvent)
+            .contentType("application/cloudevents+json")
+            .when()
+            .request("POST", "/events")
+            .then()
+            .assertThat()
+            .statusCode(200);
+    }
+
+    @Test
+    public void testPlaceAndRetrieveOrder() throws Exception {
+        Order order = new Order(new Customer("testuser", "test@mail.com"),
+            Arrays.asList(new OrderItem(PizzaType.margherita, 2)));
+
+        String orderId = with().body(order)
+            .contentType(ContentType.JSON)
+            .when()
+            .request("POST", "/order")
+            .then()
+            .assertThat()
+            .statusCode(200)
+            .body("id", notNullValue())
+            .extract().path("id");
+
+        // Allow async thread to store the order
+        Thread.sleep(2000);
+
+        get("/order")
+            .then()
+            .assertThat()
+            .statusCode(200)
+            .body("orders", notNullValue());
     }
 }
