@@ -53,7 +53,7 @@ env-check: deps-check
 	@echo "tag:  $(CURRENTTAG)"
 
 #clean: @ Cleanup
-clean:
+clean: deps-check
 	@mvn -B clean
 
 #build: @ Build project
@@ -81,15 +81,15 @@ ci-run: deps-act
 		--artifact-server-path /tmp/act-artifacts
 
 #cve-check: @ Run dependencies check for publicly disclosed vulnerabilities in application dependencies
-cve-check:
+cve-check: deps-check
 	@mvn -B dependency-check:check $(if $(NVD_API_KEY),-DnvdApiKey=$(NVD_API_KEY))
 
 #coverage-generate: @ Generate code coverage report
-coverage-generate:
+coverage-generate: deps-check
 	@mvn -B test -Ddependency-check.skip=true jacoco:report
 
 #coverage-check: @ Verify code coverage meets minimum threshold ( > 70%)
-coverage-check:
+coverage-check: deps-check
 	@mvn -B jacoco:check
 
 #coverage-open: @ Open code coverage report
@@ -101,7 +101,7 @@ coverage-open:
 	done
 
 #print-deps-updates: @ Print project dependencies updates
-print-deps-updates:
+print-deps-updates: deps-check
 	@mvn -B versions:display-dependency-updates
 
 #update-deps: @ Update project dependencies to latest releases
