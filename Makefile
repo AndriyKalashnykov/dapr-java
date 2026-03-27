@@ -121,7 +121,7 @@ renovate-bootstrap:
 
 #renovate-validate: @ Validate Renovate configuration
 renovate-validate: renovate-bootstrap
-	@npx --yes renovate -- --platform=local
+	@npx --yes renovate --platform=local
 
 #release: @ Create a release tag with semver validation (usage: make release VERSION=x.y.z)
 release:
