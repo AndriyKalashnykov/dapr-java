@@ -14,9 +14,9 @@ A sample Pizza Store application built with Java 21, [Spring Boot 4](https://spr
 ## Quick Start
 
 ```bash
-make deps          # install Java 21 + Maven via SDKMAN
-make build         # build all three services
-make test          # run integration tests (requires Docker)
+make deps          # install build dependencies via SDKMAN
+make build         # build project
+make test          # run project tests (requires Docker)
 ```
 
 ## Prerequisites
@@ -49,40 +49,41 @@ Run `make help` to see all available targets.
 
 | Target | Description |
 |--------|-------------|
-| `make build` | Build all modules (skips tests) |
-| `make test` | Run all integration tests (requires Docker) |
-| `make lint` | Run Checkstyle static analysis |
-| `make clean` | Clean build artifacts |
+| `make build` | Build project |
+| `make test` | Run project tests |
+| `make lint` | Run static analysis checks |
+| `make clean` | Remove build artifacts |
 | `make run` | Run the application |
 
 ### Code Quality
 
 | Target | Description |
 |--------|-------------|
-| `make coverage-generate` | Generate JaCoCo code coverage report |
-| `make coverage-check` | Verify coverage meets minimum threshold (>70%) |
-| `make coverage-open` | Open coverage reports in browser |
+| `make coverage-generate` | Generate code coverage report |
+| `make coverage-check` | Verify code coverage meets minimum threshold (>70%) |
+| `make coverage-open` | Open code coverage report |
 | `make cve-check` | OWASP dependency vulnerability scan |
 
 ### CI
 
 | Target | Description |
 |--------|-------------|
-| `make ci` | Full CI pipeline: clean, build, lint, test |
-| `make ci-run` | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act) |
+| `make ci` | Run full CI pipeline (clean, build, lint, test, coverage) |
+| `make ci-run` | Run GitHub Actions workflow locally using [act](https://github.com/nektos/act) |
 
 ### Utilities
 
 | Target | Description |
 |--------|-------------|
-| `make deps` | Install Java 21 + Maven via SDKMAN |
+| `make deps` | Install build dependencies via SDKMAN |
 | `make deps-check` | Verify build dependencies are installed |
 | `make deps-act` | Install act for local CI testing |
 | `make env-check` | Check installed tools and versions |
-| `make print-deps-updates` | Show available dependency updates |
-| `make update-deps` | Update dependencies to latest releases |
+| `make print-deps-updates` | Print project dependencies updates |
+| `make update-deps` | Update project dependencies to latest releases |
+| `make renovate-bootstrap` | Install nvm and npm for Renovate |
 | `make renovate-validate` | Validate Renovate configuration |
-| `make release VERSION=x.y.z` | Create a semver release tag |
+| `make release VERSION=x.y.z` | Create a release tag with semver validation |
 
 ## Architecture
 
@@ -187,9 +188,8 @@ GitHub Actions runs on every push to `main`, tags `v*`, and pull requests.
 
 - [Dapr For Java Developers](https://dzone.com/articles/dapr-for-java-developers)
 - [Platform Engineering on Kubernetes Book](http://mng.bz/jjKP?ref=salaboy.com)
-- [Testcontainers for Go Developers](https://www.atomicjar.com/2023/08/local-development-of-go-applications-with-testcontainers/)
 - [Cloud Native Local Development with Dapr and Testcontainers](https://www.diagrid.io/blog/cloud-native-local-development)
 
 ## Contributing
 
-Feel free to create issues or get in touch via [Twitter @Salaboy](https://twitter.com/salaboy).
+Feel free to [create issues](https://github.com/AndriyKalashnykov/dapr-java/issues) or submit pull requests.

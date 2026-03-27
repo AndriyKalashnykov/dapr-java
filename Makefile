@@ -8,9 +8,10 @@ CURRENTTAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
 # === Tool Versions (pinned) ===
 JAVA_VER    := 21-tem
-MAVEN_VER   := 3.9.1
+MAVEN_VER   := 3.9.9
 ACT_VERSION := 0.2.86
 NVM_VERSION := 0.40.4
+NODE_VER    := 22
 
 # === Prerequisites ===
 SDKMAN   := $${SDKMAN_DIR:-$$HOME/.sdkman}/bin/sdkman-init.sh
@@ -52,13 +53,13 @@ env-check: deps-check
 	@echo "mvn:  $$(mvn -version 2>&1 | head -1)"
 	@echo "tag:  $(CURRENTTAG)"
 
-#clean: @ Cleanup
+#clean: @ Remove build artifacts
 clean: deps-check
 	@mvn -B clean
 
 #build: @ Build project
 build: deps-check
-	@mvn -B package install -Dmaven.test.skip=true -Ddependency-check.skip=true
+	@mvn -B install -Dmaven.test.skip=true -Ddependency-check.skip=true
 
 #test: @ Run project tests
 test: deps-check
@@ -72,15 +73,15 @@ lint: deps-check
 run: build
 	@mvn -B spring-boot:run -Ddependency-check.skip=true
 
-#ci: @ Run full CI pipeline (clean, build, lint, test)
-ci: clean build lint test
+#ci: @ Run full CI pipeline (clean, build, lint, test, coverage)
+ci: clean build lint test coverage-check
 
 #ci-run: @ Run GitHub Actions workflow locally using act
 ci-run: deps-act
 	@act push --container-architecture linux/amd64 \
 		--artifact-server-path /tmp/act-artifacts
 
-#cve-check: @ Run dependencies check for publicly disclosed vulnerabilities in application dependencies
+#cve-check: @ OWASP dependency vulnerability scan
 cve-check: deps-check
 	@mvn -B dependency-check:check $(if $(NVD_API_KEY),-DnvdApiKey=$(NVD_API_KEY))
 
@@ -93,7 +94,7 @@ coverage-check: deps-check
 	@mvn -B jacoco:check
 
 #coverage-open: @ Open code coverage report
-coverage-open:
+coverage-open: deps-check
 	@for dir in pizza-store pizza-kitchen pizza-delivery; do \
 		if [ -f "./$$dir/target/site/jacoco/index.html" ]; then \
 			$(OPEN_CMD) "./$$dir/target/site/jacoco/index.html"; \
@@ -106,8 +107,7 @@ print-deps-updates: deps-check
 
 #update-deps: @ Update project dependencies to latest releases
 update-deps: print-deps-updates
-	@mvn -B versions:use-latest-releases
-	@mvn -B versions:commit
+	@mvn -B versions:use-latest-releases versions:commit
 
 #renovate-bootstrap: @ Install nvm and npm for Renovate
 renovate-bootstrap:
@@ -116,7 +116,7 @@ renovate-bootstrap:
 		curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
 		export NVM_DIR="$$HOME/.nvm"; \
 		[ -s "$$NVM_DIR/nvm.sh" ] && . "$$NVM_DIR/nvm.sh"; \
-		nvm install --lts; \
+		nvm install $(NODE_VER); \
 	}
 
 #renovate-validate: @ Validate Renovate configuration
@@ -133,7 +133,7 @@ release:
 		echo "Error: VERSION must follow semver format (x.y.z). Got: $(VERSION)"; \
 		exit 1; \
 	fi
-	@echo "Creating release tag v$(VERSION)..."
+	@echo -n "Create tag v$(VERSION)? [y/N] " && read ans && [ "$${ans:-N}" = y ] || { echo "Aborted."; exit 1; }
 	@git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
 	@echo "Release tag v$(VERSION) created. Push with: git push origin v$(VERSION)"
 

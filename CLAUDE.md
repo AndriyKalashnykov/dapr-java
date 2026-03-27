@@ -5,20 +5,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 ```bash
-make deps                               # Install Java + Maven via SDKMAN
-make deps-check                         # Verify java and mvn are available
+make help                               # List available tasks on this project
+make deps                               # Install build dependencies via SDKMAN
+make deps-check                         # Verify build dependencies are installed
+make deps-act                           # Install act for local CI testing
 make env-check                          # Show installed tool versions
-make build                              # Build all modules (skips tests)
-make test                               # Run all integration tests (requires Docker)
-make lint                               # Run Checkstyle static analysis
-make clean                              # Clean build artifacts
-make ci                                 # Full CI pipeline: clean, build, lint, test
-make ci-run                             # Run GitHub Actions workflow locally via act
+make build                              # Build project
+make test                               # Run project tests
+make lint                               # Run static analysis checks
+make clean                              # Remove build artifacts
+make run                                # Run the application
+make ci                                 # Run full CI pipeline (clean, build, lint, test, coverage)
+make ci-run                             # Run GitHub Actions workflow locally using act
 make cve-check                          # OWASP dependency vulnerability scan
-make coverage-generate                  # Run tests + generate JaCoCo reports
-make coverage-check                     # Verify coverage meets 70% threshold
-make print-deps-updates                 # Show available dependency updates
-make update-deps                        # Update dependencies to latest releases
+make coverage-generate                  # Generate code coverage report
+make coverage-check                     # Verify code coverage meets minimum threshold (>70%)
+make coverage-open                      # Open code coverage report
+make print-deps-updates                 # Print project dependencies updates
+make update-deps                        # Update project dependencies to latest releases
+make renovate-bootstrap                 # Install nvm and npm for Renovate
 make renovate-validate                  # Validate Renovate configuration
 make release VERSION=x.y.z             # Create a semver release tag
 ```
@@ -89,5 +94,6 @@ Use the following skills when working on related files:
 | `renovate.json` | `/renovate` |
 | `README.md` | `/readme` |
 | `.github/workflows/*.yml` | `/ci-workflow` |
+| `CLAUDE.md` | `/claude` |
 
 When spawning subagents, always pass conventions from the respective skill into the agent's prompt.

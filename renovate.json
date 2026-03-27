@@ -49,11 +49,6 @@
       "matchPackageNames": ["/^org\\.springframework\\.boot/"]
     },
     {
-      "description": "Group Spring Framework dependencies",
-      "groupName": "Spring Framework",
-      "matchPackageNames": ["/^org\\.springframework:/"]
-    },
-    {
       "description": "Group all Apache Commons into one PR",
       "groupName": "Apache commons",
       "matchPackageNames": [
@@ -62,15 +57,14 @@
       ]
     },
     {
-      "description": "Group annotation libraries",
-      "groupName": "annotations",
-      "matchPackageNames": [
-        "com.google.errorprone:*",
-        "net.jcip:jcip-annotations",
-        "org.checkerframework:checker-qual",
-        "org.jetbrains:annotations",
-        "org.jspecify:jspecify"
-      ]
+      "description": "Group gRPC dependencies",
+      "groupName": "gRPC",
+      "matchPackageNames": ["/^io\\.grpc/"]
+    },
+    {
+      "description": "Group OpenTelemetry dependencies",
+      "groupName": "OpenTelemetry",
+      "matchPackageNames": ["/^io\\.opentelemetry/"]
     },
     {
       "description": "Group GitHub Actions into one PR",
