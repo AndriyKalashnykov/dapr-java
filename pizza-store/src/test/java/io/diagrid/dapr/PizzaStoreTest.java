@@ -33,13 +33,14 @@ public class PizzaStoreTest {
             .withExtraHost("host.testcontainers.internal", "host-gateway");
 
     static WireMockContainer wireMock = new WireMockContainer("wiremock/wiremock:3.1.0")
-            .withMappingFromResource("kitchen", "kitchen-service-stubs.json");
+            .withMappingFromResource("kitchen", "kitchen-service-stubs.json")
+            .withMappingFromResource("delivery", "delivery-service-stubs.json");
 
     @DynamicPropertySource
     static void daprProperties(DynamicPropertyRegistry registry) {
         registry.add("dapr.grpc.port", dapr::getGrpcPort);
         registry.add("dapr.http.port", dapr::getHttpPort);
-        registry.add("dapr-http.base-url", wireMock::getBaseUrl);
+        registry.add("DAPR_HTTP_ENDPOINT", wireMock::getBaseUrl);
     }
 
     @BeforeEach
