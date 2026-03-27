@@ -2,46 +2,67 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:best-practices",
-    ":label(dependencies)",
-    ":semanticCommitType(chore)",
-    "docker:pinDigests",
-    "helpers:pinGitHubActionDigests",
-    ":dependencyDashboard",
-    "schedule:daily",
-    ":automergePr",
-    ":automergeRequireAllStatusChecks",
-    "group:springBoot",
-    "group:springCore"
+    ":semanticCommitType(chore)"
   ],
   "enabledManagers": [
     "maven",
     "github-actions"
   ],
-  "automerge": true,
-  "platformAutomerge": true,
-  "prConcurrentLimit": 2,
   "commitMessagePrefix": "chore(all): ",
   "commitMessageAction": "update",
   "commitBody": "Signed-off-by: Renovate Bot <bot@renovateapp.com>",
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 50,
+  "prHourlyLimit": 0,
+  "platformAutomerge": true,
+  "automerge": true,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "ignoreTests": false,
+  "vulnerabilityAlerts": {
+    "labels": ["security"],
+    "automerge": true,
+    "minimumReleaseAge": "0 days"
+  },
+  "dependencyDashboardLabels": [
+    "type: process"
+  ],
   "packageRules": [
     {
-      "description": "Label Java packages",
-      "matchCategories": [
-        "java"
-      ],
-      "addLabels": [
-        "lang: java"
-      ]
+      "description": "Wait 3 days before automerging major updates",
+      "matchUpdateTypes": ["major"],
+      "minimumReleaseAge": "3 days"
     },
     {
+      "description": "Label Java packages",
+      "matchCategories": ["java"],
+      "addLabels": ["lang: java"]
+    },
+    {
+      "description": "Group Dapr SDK dependencies",
+      "groupName": "Dapr SDK",
+      "matchPackageNames": ["/^io\\.dapr/"]
+    },
+    {
+      "description": "Group Spring Boot dependencies",
+      "groupName": "Spring Boot",
+      "matchPackageNames": ["/^org\\.springframework\\.boot/"]
+    },
+    {
+      "description": "Group Spring Framework dependencies",
+      "groupName": "Spring Framework",
+      "matchPackageNames": ["/^org\\.springframework:/"]
+    },
+    {
+      "description": "Group all Apache Commons into one PR",
       "groupName": "Apache commons",
-      "description": "All apache commons grouped into one PR",
       "matchPackageNames": [
         "commons-io:commons-io",
         "org.apache.commons:*"
       ]
     },
     {
+      "description": "Group annotation libraries",
       "groupName": "annotations",
       "matchPackageNames": [
         "com.google.errorprone:*",
@@ -52,24 +73,9 @@
       ]
     },
     {
+      "description": "Group GitHub Actions into one PR",
       "groupName": "GitHub Actions",
-      "matchManagers": [
-        "github-actions"
-      ]
+      "matchManagers": ["github-actions"]
     }
-  ],
-  "labels": [
-    "automerge",
-    "dependencies"
-  ],
-  "dependencyDashboard": true,
-  "dependencyDashboardLabels": [
-    "type: process"
-  ],
-  "vulnerabilityAlerts": {
-    "labels": [
-      "type:security"
-    ],
-    "minimumReleaseAge": null
-  }
+  ]
 }

@@ -1,77 +1,23 @@
 .DEFAULT_GOAL := help
 
 SHELL := /bin/bash
-SDKMAN := $(HOME)/.sdkman/bin/sdkman-init.sh
-CURRENT_USER_NAME := $(shell whoami)
 
-JAVA_VER :=  21-tem
-MAVEN_VER := 3.9.1
+# === Configuration ===
+APP_NAME   := dapr-java
+CURRENTTAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
-SDKMAN_EXISTS := $(if $(SDKMAN_DIR),@printf "sdkman",@echo "SDKMAN_DIR is undefined" && exit 1)
+# === Tool Versions (pinned) ===
+JAVA_VER    := 21-tem
+MAVEN_VER   := 3.9.1
+ACT_VERSION := 0.2.86
+NVM_VERSION := 0.40.4
 
-IS_DARWIN := 0
-IS_LINUX := 0
-IS_FREEBSD := 0
-IS_WINDOWS := 0
-IS_AMD64 := 0
-IS_AARCH64 := 0
-IS_RISCV64 := 0
-
-# Platform and architecture detection
-ifeq ($(OS), Windows_NT)
-	IS_WINDOWS := 1
-	# Windows architecture detection using PROCESSOR_ARCHITECTURE
-	ifeq ($(PROCESSOR_ARCHITECTURE), AMD64)
-		IS_AMD64 := 1
-	else ifeq ($(PROCESSOR_ARCHITECTURE), x86)
-		# 32-bit x86 - you might want to add IS_X86 := 1 if needed
-		IS_AMD64 := 0
-	else ifeq ($(PROCESSOR_ARCHITECTURE), ARM64)
-		IS_AARCH64 := 1
-	else
-		# Fallback: check PROCESSOR_ARCHITEW6432 for 32-bit processes on 64-bit systems
-		ifeq ($(PROCESSOR_ARCHITEW6432), AMD64)
-			IS_AMD64 := 1
-		else ifeq ($(PROCESSOR_ARCHITEW6432), ARM64)
-			IS_AARCH64 := 1
-		else
-			# Default to AMD64 if unable to determine
-			IS_AMD64 := 1
-		endif
-	endif
-else
-	# Unix-like systems - detect platform and architecture
-	UNAME_S := $(shell uname -s)
-	UNAME_M := $(shell uname -m)
-
-	# Platform detection
-	ifeq ($(UNAME_S), Darwin)
-		IS_DARWIN := 1
-	else ifeq ($(UNAME_S), Linux)
-		IS_LINUX := 1
-	else ifeq ($(UNAME_S), FreeBSD)
-		IS_FREEBSD := 1
-	else
-		$(error Unsupported platform: $(UNAME_S). Supported platforms: Darwin, Linux, FreeBSD, Windows_NT)
-	endif
-
-	# Architecture detection
-	ifneq (, $(filter $(UNAME_M), x86_64 amd64))
-		IS_AMD64 := 1
-	else ifneq (, $(filter $(UNAME_M), aarch64 arm64))
-		IS_AARCH64 := 1
-	else ifneq (, $(filter $(UNAME_M), riscv64))
-		IS_RISCV64 := 1
-	else
-		$(error Unsupported architecture: $(UNAME_M). Supported architectures: x86_64/amd64, aarch64/arm64, riscv64)
-	endif
-endif
-
-.PHONY: help deps deps-check env-check clean test build lint run ci cve-check coverage-generate coverage-check coverage-open print-deps-updates update-deps release
+# === Prerequisites ===
+SDKMAN   := $${SDKMAN_DIR:-$$HOME/.sdkman}/bin/sdkman-init.sh
+OPEN_CMD := $(if $(filter Darwin,$(shell uname -s)),open,xdg-open)
 
 #help: @ List available tasks on this project
 help:
-	@clear
 	@echo "Usage: make COMMAND"
 	@echo
 	@echo "Commands :"
@@ -93,66 +39,89 @@ deps:
 deps-check:
 	@command -v java >/dev/null 2>&1 || { echo "java is required but not installed."; exit 1; }
 	@command -v mvn >/dev/null 2>&1 || { echo "mvn is required but not installed."; exit 1; }
-	@echo "All build dependencies are available."
 
-#env-check: @ Check installed tools
+#deps-act: @ Install act for local CI testing
+deps-act: deps-check
+	@command -v act >/dev/null 2>&1 || { echo "Installing act $(ACT_VERSION)..."; \
+		curl -sSfL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash -s -- -b /usr/local/bin v$(ACT_VERSION); \
+	}
+
+#env-check: @ Check installed tools and versions
 env-check: deps-check
-	@printf "\xE2\x9C\x94 "
-	@$(SDKMAN_EXISTS)
-	@printf "\n"
+	@echo "java: $$(java -version 2>&1 | head -1)"
+	@echo "mvn:  $$(mvn -version 2>&1 | head -1)"
+	@echo "tag:  $(CURRENTTAG)"
 
 #clean: @ Cleanup
 clean:
-	@mvn clean
-
-#test: @ Run project tests
-test: build
-	@mvn test -Ddependency-check.skip=true
+	@mvn -B clean
 
 #build: @ Build project
-build:
-	@mvn package install -Dmaven.test.skip=true -Ddependency-check.skip=true
+build: deps-check
+	@mvn -B package install -Dmaven.test.skip=true -Ddependency-check.skip=true
+
+#test: @ Run project tests
+test: deps-check
+	@mvn -B test -Ddependency-check.skip=true
 
 #lint: @ Run static analysis checks
-lint:
-	@mvn checkstyle:check -Ddependency-check.skip=true
+lint: deps-check
+	@mvn -B checkstyle:check -Ddependency-check.skip=true
 
 #run: @ Run the application
 run: build
-	@mvn spring-boot:run -Ddependency-check.skip=true
+	@mvn -B spring-boot:run -Ddependency-check.skip=true
 
-#ci: @ Run full CI pipeline (clean, build, test)
-ci: clean build test
+#ci: @ Run full CI pipeline (clean, build, lint, test)
+ci: clean build lint test
 
-# mvn org.owasp:dependency-check-maven:12.1.3:check -DnvdApiKey=${NVD_API_KEY}
+#ci-run: @ Run GitHub Actions workflow locally using act
+ci-run: deps-act
+	@act push --container-architecture linux/amd64 \
+		--artifact-server-path /tmp/act-artifacts
+
 #cve-check: @ Run dependencies check for publicly disclosed vulnerabilities in application dependencies
 cve-check:
-	@mvn dependency-check:check $(if $(NVD_API_KEY),-DnvdApiKey=$(NVD_API_KEY))
+	@mvn -B dependency-check:check $(if $(NVD_API_KEY),-DnvdApiKey=$(NVD_API_KEY))
 
 #coverage-generate: @ Generate code coverage report
 coverage-generate:
-	@mvn test -Ddependency-check.skip=true jacoco:report
+	@mvn -B test -Ddependency-check.skip=true jacoco:report
 
 #coverage-check: @ Verify code coverage meets minimum threshold ( > 70%)
 coverage-check:
-	@mvn jacoco:check
+	@mvn -B jacoco:check
 
 #coverage-open: @ Open code coverage report
 coverage-open:
 	@for dir in pizza-store pizza-kitchen pizza-delivery; do \
 		if [ -f "./$$dir/target/site/jacoco/index.html" ]; then \
-			$(if $(filter 1,$(IS_DARWIN)),open,xdg-open) "./$$dir/target/site/jacoco/index.html"; \
+			$(OPEN_CMD) "./$$dir/target/site/jacoco/index.html"; \
 		fi; \
 	done
 
 #print-deps-updates: @ Print project dependencies updates
 print-deps-updates:
-	@mvn versions:display-dependency-updates
+	@mvn -B versions:display-dependency-updates
 
 #update-deps: @ Update project dependencies to latest releases
 update-deps: print-deps-updates
-	@mvn versions:use-latest-releases
-	@mvn versions:commit
+	@mvn -B versions:use-latest-releases
+	@mvn -B versions:commit
+
+#renovate-bootstrap: @ Install nvm and npm for Renovate
+renovate-bootstrap:
+	@command -v node >/dev/null 2>&1 || { \
+		echo "Installing nvm $(NVM_VERSION)..."; \
+		curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
+		export NVM_DIR="$$HOME/.nvm"; \
+		[ -s "$$NVM_DIR/nvm.sh" ] && . "$$NVM_DIR/nvm.sh"; \
+		nvm install --lts; \
+	}
+
+#renovate-validate: @ Validate Renovate configuration
+renovate-validate: renovate-bootstrap
+	@npx --yes renovate -- --platform=local
 
 #release: @ Create a release tag with semver validation (usage: make release VERSION=x.y.z)
 release:
@@ -167,3 +136,7 @@ release:
 	@echo "Creating release tag v$(VERSION)..."
 	@git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
 	@echo "Release tag v$(VERSION) created. Push with: git push origin v$(VERSION)"
+
+.PHONY: help deps deps-check deps-act env-check clean build test lint run \
+	ci ci-run cve-check coverage-generate coverage-check coverage-open \
+	print-deps-updates update-deps renovate-bootstrap renovate-validate release

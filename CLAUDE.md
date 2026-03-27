@@ -5,21 +5,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 ```bash
+make deps                               # Install Java + Maven via SDKMAN
+make deps-check                         # Verify java and mvn are available
+make env-check                          # Show installed tool versions
 make build                              # Build all modules (skips tests)
-make test                               # Build + run all integration tests (requires Docker)
+make test                               # Run all integration tests (requires Docker)
+make lint                               # Run Checkstyle static analysis
 make clean                              # Clean build artifacts
+make ci                                 # Full CI pipeline: clean, build, lint, test
+make ci-run                             # Run GitHub Actions workflow locally via act
 make cve-check                          # OWASP dependency vulnerability scan
 make coverage-generate                  # Run tests + generate JaCoCo reports
 make coverage-check                     # Verify coverage meets 70% threshold
 make print-deps-updates                 # Show available dependency updates
+make update-deps                        # Update dependencies to latest releases
+make renovate-validate                  # Validate Renovate configuration
+make release VERSION=x.y.z             # Create a semver release tag
 ```
 
 ### Single module commands
 
 ```bash
-mvn test -Ddependency-check.skip=true -B -pl pizza-delivery
-mvn test -Ddependency-check.skip=true -B -pl pizza-kitchen
-mvn test -Ddependency-check.skip=true -B -pl pizza-store
+mvn -B test -Ddependency-check.skip=true -pl pizza-delivery
+mvn -B test -Ddependency-check.skip=true -pl pizza-kitchen
+mvn -B test -Ddependency-check.skip=true -pl pizza-store
 ```
 
 ## Architecture
@@ -68,4 +77,4 @@ public class ServiceTest {
 
 ## Key Dependency Versions
 
-Managed centrally in the parent `pom.xml` `<properties>` block. The Dapr SDK version (`dapr.version`) drives both `dapr-spring-boot-4-starter` and `testcontainers-dapr`. Dependency updates are automated via Renovate with automerge enabled.
+Managed centrally in the parent `pom.xml` `<properties>` block. The Dapr SDK version (`dapr.version`) drives both `dapr-spring-boot-4-starter` and `testcontainers-dapr`. Dependency updates are automated via Renovate (`renovate.json`) with automerge enabled on all update types — platform automerge with squash strategy, vulnerability alerts fast-tracked with zero delay.

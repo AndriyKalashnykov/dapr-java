@@ -92,23 +92,45 @@ The application services are written using Java 21 + Spring Boot 4. These servic
 
 ### Prerequisites
 
-- JDK 21+
-- [Maven](https://maven.apache.org/) 3.9+
-- [Docker](https://www.docker.com/) (for running integration tests with Testcontainers)
+| Tool | Version | Purpose |
+|------|---------|---------|
+| [JDK](https://adoptium.net/) | 21+ | Java runtime and compiler |
+| [Maven](https://maven.apache.org/) | 3.9+ | Build and dependency management |
+| [Docker](https://www.docker.com/) | latest | Integration tests via Testcontainers |
+| [SDKMAN](https://sdkman.io/) | latest | Java/Maven version management (optional) |
 
-To build, test, and manage the project you can use the included Makefile. Run `make help` to see all available targets:
+Install all required build dependencies automatically via [SDKMAN](https://sdkman.io/):
 
+```bash
+make deps
 ```
-make build              # Build all modules
-make test               # Run all tests (requires Docker for Testcontainers)
-make clean              # Clean build artifacts
-make cve-check          # Run OWASP dependency vulnerability check
-make coverage-generate  # Generate JaCoCo code coverage report
-make coverage-check     # Verify coverage meets minimum threshold (>70%)
-make coverage-open      # Open coverage reports in browser
-make print-deps-updates # Show available dependency updates
-make update-deps        # Update dependencies to latest releases
+
+Verify installed tools:
+
+```bash
+make env-check
 ```
+
+### Available Make Targets
+
+Run `make help` to see all available targets:
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Build all modules (skips tests) |
+| `make test` | Run all integration tests (requires Docker) |
+| `make lint` | Run Checkstyle static analysis |
+| `make clean` | Clean build artifacts |
+| `make ci` | Full CI pipeline: clean, build, lint, test |
+| `make ci-run` | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act) |
+| `make cve-check` | OWASP dependency vulnerability scan |
+| `make coverage-generate` | Generate JaCoCo code coverage report |
+| `make coverage-check` | Verify coverage meets minimum threshold (>70%) |
+| `make coverage-open` | Open coverage reports in browser |
+| `make print-deps-updates` | Show available dependency updates |
+| `make update-deps` | Update dependencies to latest releases |
+| `make renovate-validate` | Validate Renovate configuration |
+| `make release VERSION=x.y.z` | Create a semver release tag |
 
 Tests use [Testcontainers](https://testcontainers.com) with [`io.dapr:testcontainers-dapr`](https://central.sonatype.com/artifact/io.dapr/testcontainers-dapr) to automatically start Dapr sidecars and placement services. This means you can run integration tests outside of Kubernetes without any manual Dapr setup — just Docker.
 
