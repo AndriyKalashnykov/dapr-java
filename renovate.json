@@ -49,14 +49,6 @@
       "matchPackageNames": ["/^org\\.springframework\\.boot/"]
     },
     {
-      "description": "Group all Apache Commons into one PR",
-      "groupName": "Apache commons",
-      "matchPackageNames": [
-        "commons-io:commons-io",
-        "org.apache.commons:*"
-      ]
-    },
-    {
       "description": "Group gRPC dependencies",
       "groupName": "gRPC",
       "matchPackageNames": ["/^io\\.grpc/"]
