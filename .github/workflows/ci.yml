@@ -5,6 +5,7 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,9 +20,31 @@ env:
   MAVEN_OPTS: '-Xmx1024m'
 
 jobs:
-  ci:
-    name: CI
+  static-check:
+    name: Static Check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+    - name: Set up JDK ${{ env.JAVA_VERSION }}
+      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: ${{ env.JAVA_DISTRO }}
+        cache: 'maven'
+
+    - name: Lint
+      run: make lint
+
+  build:
+    name: Build
+    needs: [static-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
 
@@ -38,8 +61,23 @@ jobs:
     - name: Build
       run: make build
 
-    - name: Lint
-      run: make lint
+  test:
+    name: Test
+    needs: [static-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+    - name: Set up JDK ${{ env.JAVA_VERSION }}
+      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: ${{ env.JAVA_DISTRO }}
+        cache: 'maven'
 
     - name: Test
       run: make test

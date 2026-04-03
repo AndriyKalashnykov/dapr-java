@@ -19,8 +19,12 @@ spec:
         app.kubernetes.io/part-of: pizza-delivery-service
         app.kubernetes.io/version: 0.1.0
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
       - name: pizza-delivery-service
+        securityContext:
+          allowPrivilegeEscalation: false
         image: salaboy/pizza-delivery:0.1.0
         imagePullPolicy: Always
         env:

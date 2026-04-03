@@ -15,11 +15,11 @@ make test                               # Run project tests
 make lint                               # Run static analysis checks
 make clean                              # Remove build artifacts
 make run                                # Run the application
-make ci                                 # Run full CI pipeline (clean, build, lint, test, coverage)
+make ci                                 # Run full CI pipeline (clean, lint, build, test, coverage)
 make ci-run                             # Run GitHub Actions workflow locally using act
 make cve-check                          # OWASP dependency vulnerability scan
 make coverage-generate                  # Generate code coverage report
-make coverage-check                     # Verify code coverage meets minimum threshold (>70%)
+make coverage-check                     # Verify code coverage meets minimum threshold (>70 %)
 make coverage-open                      # Open code coverage report
 make print-deps-updates                 # Print project dependencies updates
 make update-deps                        # Update project dependencies to latest releases
@@ -61,9 +61,10 @@ Tests use `@ImportTestcontainers` (Spring Boot + Testcontainers 2.x) with a cont
 Key pattern across all test classes:
 
 ```java
-@SpringBootTest(classes = AppTest.class, webEnvironment = DEFINED_PORT)
+// pizza-kitchen and pizza-delivery use DEFINED_PORT; pizza-store uses RANDOM_PORT
+@SpringBootTest(classes = PizzaKitchenAppTest.class, webEnvironment = DEFINED_PORT)
 @ImportTestcontainers
-public class ServiceTest {
+public class PizzaKitchenTest {
     static DaprContainer dapr = new DaprContainer(DaprContainer.getDefaultImageName())
         .withAppName("local-dapr-app")
         .withAppPort(8080)
@@ -83,6 +84,17 @@ public class ServiceTest {
 ## Key Dependency Versions
 
 Managed centrally in the parent `pom.xml` `<properties>` block. The Dapr SDK version (`dapr.version`) drives both `dapr-spring-boot-4-starter` and `testcontainers-dapr`. Dependency updates are automated via Renovate (`renovate.json`) with automerge enabled on all update types — platform automerge with squash strategy, vulnerability alerts fast-tracked with zero delay.
+
+## Upgrade Backlog
+
+Last reviewed: 2026-04-03
+
+- [x] **Maven 3.9 EOL (2026-03-12)** — updated `MAVEN_VER` to 3.9.14 (2026-04-03)
+- [ ] **Maven 4.0 migration** — plan when Maven 4.0 reaches GA (currently RC-5)
+- [ ] **Spring Boot 4.0 EOL (2026-12-31)** — monitor 4.1 release schedule, plan upgrade before Dec 2026
+- [ ] **`MAVEN_VER` not tracked by Renovate** — add customManagers regex entry or track manually
+- [ ] **Alpha dependencies** — `opentelemetry-instrumentation-bom-alpha`, `wiremock-testcontainers` 1.0-alpha-15. Track GA releases.
+- [x] **K8s security hardening** — added securityContext to all deployments (2026-04-03)
 
 ## Skills
 

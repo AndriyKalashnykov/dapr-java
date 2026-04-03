@@ -8,7 +8,7 @@ CURRENTTAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
 # === Tool Versions (pinned) ===
 JAVA_VER    := 21-tem
-MAVEN_VER   := 3.9.9
+MAVEN_VER   := 3.9.14
 ACT_VERSION := 0.2.87
 NVM_VERSION := 0.40.4
 NODE_VER    := 22
@@ -73,8 +73,8 @@ lint: deps-check
 run: build
 	@mvn -B spring-boot:run -Ddependency-check.skip=true
 
-#ci: @ Run full CI pipeline (clean, build, lint, test, coverage)
-ci: clean build lint test coverage-check
+#ci: @ Run full CI pipeline (clean, lint, build, test, coverage)
+ci: clean lint build test coverage-check
 
 #ci-run: @ Run GitHub Actions workflow locally using act
 ci-run: deps-act
@@ -89,7 +89,7 @@ cve-check: deps-check
 coverage-generate: deps-check
 	@mvn -B test -Ddependency-check.skip=true jacoco:report
 
-#coverage-check: @ Verify code coverage meets minimum threshold ( > 70%)
+#coverage-check: @ Verify code coverage meets minimum threshold (>70%)
 coverage-check: deps-check
 	@mvn -B jacoco:check
 

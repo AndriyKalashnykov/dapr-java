@@ -68,7 +68,7 @@ Run `make help` to see all available targets.
 
 | Target | Description |
 |--------|-------------|
-| `make ci` | Run full CI pipeline (clean, build, lint, test, coverage) |
+| `make ci` | Run full CI pipeline (clean, lint, build, test, coverage) |
 | `make ci-run` | Run GitHub Actions workflow locally using [act](https://github.com/nektos/act) |
 
 ### Utilities
@@ -180,7 +180,9 @@ GitHub Actions runs on every push to `main`, tags `v*`, and pull requests.
 
 | Job | Triggers | Steps |
 |-----|----------|-------|
-| **ci** | push, PR, tags | Build, Lint, Test |
+| **static-check** | push, PR, tags | Lint |
+| **build** | after static-check | Build |
+| **test** | after static-check | Test |
 
 [Renovate](https://docs.renovatebot.com/) keeps dependencies up to date with platform automerge enabled.
 

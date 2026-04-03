@@ -19,8 +19,12 @@ spec:
         app.kubernetes.io/part-of: pizza-kitchen-service
         app.kubernetes.io/version: 0.1.0
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
       - name: pizza-kitchen-service
+        securityContext:
+          allowPrivilegeEscalation: false
         image: salaboy/pizza-kitchen:0.1.0
         imagePullPolicy: Always
         env:
