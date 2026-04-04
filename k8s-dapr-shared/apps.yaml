@@ -19,8 +19,12 @@ spec:
         app.kubernetes.io/part-of: pizza-delivery-service
         app.kubernetes.io/version: 0.1.0
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
       - name: pizza-delivery-service
+        securityContext:
+          allowPrivilegeEscalation: false
         image: salaboy/pizza-delivery:0.1.0
         imagePullPolicy: Always
         env:
@@ -86,8 +90,12 @@ spec:
         app.kubernetes.io/part-of: pizza-kitchen-service
         app.kubernetes.io/version: 0.1.0
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
       - name: pizza-kitchen-service
+        securityContext:
+          allowPrivilegeEscalation: false
         image: salaboy/pizza-kitchen:0.1.0
         imagePullPolicy: Always
         env:
@@ -155,8 +163,12 @@ spec:
         app.kubernetes.io/part-of: pizza-store-service
         app.kubernetes.io/version: 0.1.0
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
       - name: pizza-store-service
+        securityContext:
+          allowPrivilegeEscalation: false
         image: salaboy/pizza-store:0.1.0
         imagePullPolicy: Always
         env:
