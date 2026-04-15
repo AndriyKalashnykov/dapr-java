@@ -88,7 +88,7 @@ The Pizza Store application simulates placing a Pizza Order that is processed by
 - **pizza-kitchen** — receives `PUT /prepare` through its Dapr sidecar; simulates cooking and publishes `ORDER_IN_PREPARATION` then `ORDER_READY` to the shared `pubsub` component on topic `topic`.
 - **pizza-delivery** — receives `PUT /deliver` through its sidecar; emits `ORDER_ON_ITS_WAY` (three times) and `ORDER_COMPLETED` as three-second stages advance.
 - **Dapr sidecar** (1.17.2, one per pod) — brokers all cross-service traffic; apps never address each other directly.
-- **State Store** (`kvstore`) — PostgreSQL in production, Redis in e2e.
+- **State Store** (`kvstore`) — PostgreSQL in production, Redis in e2e. The store applies `ORDER_READY` → `Status.delivery` and `ORDER_COMPLETED` → `Status.completed` as upserts to the same order id.
 - **PubSub** (`pubsub`, topic `topic`) — Kafka in production, Redis in e2e.
 
 ### Order Flow
@@ -131,7 +131,7 @@ sequenceDiagram
 <img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="900">
 
 - Each service runs as a single-replica `Deployment` in the `default` namespace with a Dapr sidecar injected via the `dapr.io/enabled` annotation and a matching `dapr.io/app-id`.
-- `pizza-store` is exposed through a `Service` of type `LoadBalancer` (MetalLB on KinD, cloud LB in production) bridging port 80 → container 8080.
+- `pizza-store` is exposed through a `Service` of type `LoadBalancer`. On KinD that IP is provisioned by [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) (host-side controller, no in-cluster MetalLB); in production the cloud LB controller fills the same role. Service port 80 bridges to container port 8080.
 - The Dapr control plane (`dapr-operator`, `placement`, `sentry`, `injector`) runs in the `dapr-system` namespace via the official Helm chart (1.17.4).
 - PubSub and State Store components resolve to Redis for e2e (`k8s/components-e2e.yaml`) and to Kafka + PostgreSQL in production.
 
@@ -151,12 +151,13 @@ flowchart LR
   app -->|asserts events on| sub["SubscriptionsRestController<br/>POST /events"]
 ```
 
-Two test layers are exposed:
+Three test layers are exposed:
 
 | Layer | Command | Scope | Runtime |
 |-------|---------|-------|---------|
-| Unit | `make test` | Surefire runs `**/*Test.java` against in-memory PubSub Dapr sidecars | Seconds |
-| Integration | `make integration-test` | Failsafe runs `**/*IT.java` against real dependencies (no `*IT.java` tests currently exist — layer reserved for future end-to-end scenarios) | Tens of seconds |
+| Unit | `make test` | Surefire runs `**/*Test.java` against in-memory PubSub Dapr sidecars | ~30 s |
+| Integration | `make integration-test` | Failsafe runs `**/*IT.java`: `PizzaStoreStateStoreIT` (real `kvstore` round-trip), `KitchenInvocationIT` / `DeliveryInvocationIT` (service-invocation contract via WireMock), `WebSocketBroadcastIT` (STOMP broadcast of `ORDER_PLACED`) | ~1 min |
+| E2E | `make e2e` | KinD + cloud-provider-kind + Dapr Helm + `e2e/e2e-test.sh` asserts the full `store → kitchen → store → delivery → store` lifecycle reaches `Status.completed` through the LoadBalancer | ~2 min |
 
 Once the service is up, events from the Kitchen and Delivery services can be simulated by posting CloudEvents to the `/events` endpoint. Using [`httpie`](https://httpie.io/):
 
@@ -166,17 +167,24 @@ http :8080/events Content-Type:application/cloudevents+json < pizza-store/event-
 
 ## Kubernetes Deployment
 
-### Create a Cluster
+### Local KinD (recommended)
 
-If no Kubernetes cluster is available, [install KinD](https://kind.sigs.k8s.io/docs/user/quick-start/) and create a local cluster:
+The fastest path from a clean checkout to a running, end-to-end-tested cluster:
 
 ```bash
-kind create cluster
+make kind-up          # create KinD cluster, start cloud-provider-kind, install Dapr via Helm, build images, apply manifests, wait for rollout
+make e2e              # run e2e/e2e-test.sh against the LoadBalancer IP
+make kind-down        # tear it all down
 ```
 
-### Install Dapr
+`make kind-up` chains `kind-create` → `image-build` → `kind-deploy`; individual targets remain available for debugging (see [Make Targets](#available-make-targets)). The cluster uses [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) for LoadBalancer IPs (a host-side controller on the `kind` Docker network) and Redis for both PubSub and State Store via `k8s/components-e2e.yaml` — hermetic, no Kafka or PostgreSQL dependencies.
+
+### Bring your own cluster
+
+If a production-shaped cluster is already available, install the runtime components manually:
 
 ```bash
+# Dapr control plane
 helm repo add dapr https://dapr.github.io/helm-charts/
 helm repo update
 helm upgrade --install dapr dapr/dapr \
@@ -186,20 +194,16 @@ helm upgrade --install dapr dapr/dapr \
   --wait
 ```
 
-### Install Infrastructure
-
-Kafka for messaging between services:
-
 ```bash
+# Kafka (PubSub backend in production)
 helm install kafka oci://registry-1.docker.io/bitnamicharts/kafka --version 22.1.5 \
   --set "provisioning.topics[0].name=events-topic" \
   --set "provisioning.topics[0].partitions=1" \
   --set "persistence.size=1Gi"
 ```
 
-PostgreSQL for persistent storage:
-
 ```bash
+# PostgreSQL (State Store backend in production)
 kubectl apply -f k8s/pizza-init-sql-cm.yaml
 
 helm install postgresql oci://registry-1.docker.io/bitnamicharts/postgresql --version 12.5.7 \
@@ -213,13 +217,12 @@ helm install postgresql oci://registry-1.docker.io/bitnamicharts/postgresql --ve
 
 > **Note:** Bitnami chart images moved behind a paywall in mid-2025. If `bitnamicharts` pulls fail, substitute `bitnamilegacysecure` or migrate to vendor-neutral charts. Chart versions above are the last free-tier releases verified with this project.
 
-### Deploy the Application
-
 ```bash
+# Application manifests
 kubectl apply -f k8s/
 ```
 
-Access the application via port-forward:
+Access the application:
 
 ```bash
 kubectl port-forward svc/pizza-store 8080:80
@@ -247,7 +250,7 @@ Run `make help` to see all available targets.
 
 | Target | Description |
 |--------|-------------|
-| `make static-check` | Composite gate: `format-check` + `lint` + `trivy-fs` + `trivy-config` + `secrets` |
+| `make static-check` | Composite gate: `format-check` + `lint` + `trivy-fs` + `trivy-config` + `secrets` + `diagrams-check` + `mermaid-lint` |
 | `make lint` | Run Checkstyle static analysis |
 | `make format` | Auto-format Java source (google-java-format) |
 | `make format-check` | Verify source formatting without modifying files |
@@ -256,29 +259,54 @@ Run `make help` to see all available targets.
 | `make secrets` | Scan git history and tree for leaked secrets (gitleaks) |
 | `make deps-prune` | Analyze Maven dependencies (advisory) |
 | `make deps-prune-check` | Fail if unused declared Maven dependencies exist |
-| `make cve-check` | OWASP dependency vulnerability scan |
-| `make coverage-generate` | Generate JaCoCo coverage report |
-| `make coverage-check` | Verify coverage meets minimum threshold (78% current, 80% target) |
+| `make cve-check` | OWASP dependency vulnerability scan (run manually before pushing a release tag) |
+| `make coverage-generate` | Generate JaCoCo coverage report (merged surefire + failsafe) |
+| `make coverage-check` | Verify merged coverage meets minimum threshold (80%) |
 | `make coverage-open` | Open coverage report in browser |
+
+### Diagrams
+
+| Target | Description |
+|--------|-------------|
+| `make diagrams` | Render PlantUML sources in `docs/diagrams/` to PNG under `docs/diagrams/out/` |
+| `make diagrams-clean` | Remove rendered PNGs |
+| `make diagrams-check` | Verify committed PNGs are in sync with `.puml` sources (gate in `static-check`) |
+| `make mermaid-lint` | Lint Mermaid fenced blocks in markdown via `minlag/mermaid-cli` (gate in `static-check`) |
+
+### Kubernetes
+
+| Target | Description |
+|--------|-------------|
+| `make kind-up` | Bring the full local stack up: cluster + cloud-provider-kind + Dapr Helm + images + manifests |
+| `make kind-down` | Tear the stack down: remove manifests, stop cloud-provider-kind, delete cluster |
+| `make e2e` | Run `e2e/e2e-test.sh` against the LoadBalancer IP after `kind-up` |
+| `make image-build` | Build all three service images via `spring-boot:build-image` and tag `:e2e` |
+| `make kind-create` | (granular) Create KinD cluster + start cloud-provider-kind + install Dapr |
+| `make kind-deploy` | (granular) Build + load images, apply manifests, wait for rollout + LB IP |
+| `make kind-undeploy` | (granular) Delete application manifests from the cluster |
+| `make kind-destroy` | (granular) Stop cloud-provider-kind + delete KinD cluster |
 
 ### CI
 
 | Target | Description |
 |--------|-------------|
-| `make ci` | Full CI pipeline: `clean deps static-check test integration-test build cve-check coverage-check` |
-| `make ci-run` | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act) |
+| `make ci` | Local CI pipeline: `clean deps static-check test integration-test build coverage-check` (cve-check is separate — run `make cve-check` before pushing a release tag) |
+| `make ci-run` | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act); jobs are serialized with `act --job` |
 
 ### Dependencies & Tools
 
 | Target | Description |
 |--------|-------------|
-| `make deps` | Install build dependencies via mise |
+| `make deps` | Install build dependencies via mise (reads `.mise.toml`) |
 | `make deps-check` | Verify build dependencies are installed |
-| `make deps-maven` | Install Maven from Apache archives (CI fallback) |
+| `make deps-maven` | Install Maven from Apache archives (CI fallback when mise unavailable) |
 | `make deps-act` | Install act |
 | `make deps-trivy` | Install Trivy |
 | `make deps-gitleaks` | Install gitleaks |
 | `make deps-gjf` | Download google-java-format jar |
+| `make deps-kind` | Install KinD binary |
+| `make deps-kubectl` | Install kubectl binary |
+| `make deps-helm` | Install helm binary |
 | `make env-check` | Show installed tool versions |
 
 ### Utilities
@@ -288,19 +316,21 @@ Run `make help` to see all available targets.
 | `make print-deps-updates` | Print project dependency updates |
 | `make update-deps` | Update dependencies to latest releases |
 | `make renovate-validate` | Validate Renovate configuration |
-| `make release VERSION=x.y.z` | Create a semver release tag |
+| `make release VERSION=x.y.z` | Create a semver release tag (run `make cve-check` first) |
 
 ## CI/CD
 
-GitHub Actions runs on every push to `main`, tags `v*`, and pull requests.
+GitHub Actions runs on push to `main`, tags `v*`, pull requests, a weekly schedule, and `workflow_dispatch`.
 
 | Job | Triggers | Depends on | Steps |
 |-----|----------|-----------|-------|
-| **static-check** | push, PR, tags | — | `make static-check` (format-check, Checkstyle, trivy-fs, trivy-config, gitleaks) |
-| **build** | push, PR, tags | `static-check` | `make build`; uploads service JAR artifacts on tag pushes only |
-| **test** | push, PR, tags | `static-check` | `make coverage-generate` + `make coverage-check`; uploads JaCoCo report |
-| **cve-check** | push to `main` or tag | `build`, `test` | `make cve-check` (OWASP dependency-check); uploads HTML report |
-| **ci-pass** | always | all above | Gate job that fails if any needed job failed |
+| **static-check** | push, PR, tags | — | `make static-check` (format-check, Checkstyle, trivy-fs, trivy-config, gitleaks, diagrams-check, mermaid-lint); `fetch-depth: 0` so gitleaks can walk history |
+| **build** | push, PR, tags | `static-check` | `make build`; tag-gated artifact upload of `pizza-*/target/*.jar` |
+| **test** | push, PR, tags | `static-check` | `make test` (Surefire unit tests only — fast feedback) |
+| **integration-test** | push, PR, tags | `static-check` | `make coverage-generate` + `make coverage-check`; runs surefire + failsafe + merged-coverage gate; uploads JaCoCo report |
+| **cve-check** | tag push, weekly cron (Mon 06:00 UTC), `workflow_dispatch` | `build`, `test`, `integration-test` | `make cve-check` (OWASP dependency-check), NVD cache, HTML report upload |
+| **e2e** | push to `main`/tag, PR label `run-e2e`, `workflow_dispatch` | `build`, `test`, `integration-test` | `make deps-kind deps-kubectl deps-helm` + `make e2e`; collects pod logs + cluster events on failure |
+| **ci-pass** | always | all above | Gate job that fails if any needed job failed (required-status-check target) |
 
 ### Required Secrets and Variables
 
