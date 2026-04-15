@@ -112,19 +112,20 @@ Last reviewed: 2026-04-15
 - [x] **Maven 3.9 EOL (2026-03-12)** — updated `MAVEN_VERSION` to 3.9.14 (2026-04-03)
 - [x] **mise migration** — replaced SDKMAN + nvm with mise via `.mise.toml` and `.java-version` (2026-04-15)
 - [x] **Static-check composite quality gate** — `format-check` + `lint` + `trivy-fs` + `trivy-config` + `secrets` wired into `make ci` (2026-04-15)
-- [x] **CVE overrides** — pinned Tomcat 11.0.21, Jackson 3.1.1, gRPC 1.80.0 in `dependencyManagement` to address advisories (2026-04-15)
+- [x] **CVE overrides** — pinned Tomcat 11.0.21, Jackson 3.1.2, gRPC 1.80.0 in `dependencyManagement` to address advisories (2026-04-15)
 - [x] **K8s security hardening** — `runAsNonRoot`, `readOnlyRootFilesystem`, dropped capabilities, tmpfs for writable paths in all three Deployments (both `k8s/` and `k8s-dapr-shared/`) (2026-04-15)
 - [x] **`cve-check` wired into CI** — runs on push to `main` and tag pushes, with NVD cache and HTML report upload (2026-04-15)
 - [x] **`MAVEN_VERSION` Renovate tracking** — covered by the generic `# renovate:` customManagers regex (2026-04-15)
 - [ ] **Maven 4.0 migration** — plan when Maven 4.0 reaches GA (currently RC-5)
 - [ ] **Spring Boot 4.0 EOL (2026-12-31)** — monitor 4.1 release schedule, plan upgrade before Dec 2026
 - [ ] **Alpha dependencies** — `opentelemetry-instrumentation-bom-alpha`, `wiremock-testcontainers` 1.0-alpha-15. Track GA releases.
-- [ ] **Raise JaCoCo threshold 0.78 → 0.80** — pizza-store currently at 0.79; follow-up `/test-coverage-analysis`
-- [ ] **Add integration tests (`**/*IT.java`)** — Failsafe wiring is in place but no `*IT.java` exists yet; follow-up `/test-coverage-analysis`
-- [ ] **Add `make e2e` target + KinD/MetalLB** — end-to-end verification on a real Kubernetes stack; follow-up `/test-coverage-analysis`
+- [x] **Raise JaCoCo threshold to 0.80** — pizza-store now at 0.89 (2026-04-15)
+- [x] **Add integration tests (`**/*IT.java`)** — state store round-trip, kitchen invocation, delivery invocation, WebSocket broadcast (2026-04-15)
+- [x] **Add `make e2e` target + KinD/MetalLB** — full KinD lifecycle, MetalLB, Dapr Helm, e2e script asserting order fan-out (2026-04-15)
+- [x] **Dapr 1.17.1 → 1.17.2; Jackson 3.1.1 → 3.1.2; OTel 1.60.1 → 1.61.0** — patch bumps (2026-04-15)
+- [x] **Dapr Helm chart bump** — chart aligned to 1.17.4 via `DAPR_HELM_VERSION` in Makefile (2026-04-15)
 - [ ] **Replace hand-drawn architecture PNGs with C4-PlantUML** — `architecture.png`, `architecture+infra.png`, `architecture+dapr.png` lack source; the `+` in filenames also complicates URL-encoding. Follow-up `/architecture-diagrams`.
 - [ ] **Add C4 Context hero diagram to README** — deferred until PlantUML toolchain and `make diagrams-check` lint are introduced (mermaid-lint not wired today). Follow-up `/architecture-diagrams`.
-- [ ] **Verify Dapr Helm chart bump** — README now references chart 1.17.1 to match SDK; confirm against upstream release index on next upgrade cycle.
 
 ## Skills
 

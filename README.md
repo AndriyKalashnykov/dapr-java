@@ -17,15 +17,15 @@ Reference implementation of a three-service Java microservice platform on [Dapr]
 |-----------|-----------|-----------|
 | Language | Java 21 LTS | Current LTS with virtual threads and pattern matching |
 | Framework | Spring Boot 4.0.5 | Current GA; aligns with Spring Cloud 2025 |
-| Runtime sidecar | Dapr 1.17.1 | Provides PubSub, State Store, Service Invocation APIs |
-| Dapr SDK | `dapr-spring-boot-4-starter` 1.17.1 | Matches Dapr runtime version |
+| Runtime sidecar | Dapr 1.17.2 | Provides PubSub, State Store, Service Invocation APIs |
+| Dapr SDK | `dapr-spring-boot-4-starter` 1.17.2 | Matches Dapr runtime version |
 | HTTP server | Embedded Tomcat 11.0.21 | Pinned in `dependencyManagement` to address CVEs |
-| JSON | Jackson 3.1.1 | Pinned to address CVE-reported 2.x transitive dependencies |
+| JSON | Jackson 3.1.2 | Pinned to address CVE-reported 2.x transitive dependencies |
 | gRPC | gRPC 1.80.0 | Pinned to address CVEs in older Spring-Boot-managed version |
 | Build | Maven 3.9.14 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
-| Test containers | Testcontainers 2.x + `testcontainers-dapr` 1.17.1 | Runs containerized Dapr sidecars during tests |
+| Test containers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy + gitleaks | Composite `make static-check` gate |
-| Coverage | JaCoCo (78% min, 80% aspiration) | Enforced by `make coverage-check` |
+| Coverage | JaCoCo (80% min, enforced) | Enforced by `make coverage-check` |
 | Version manager | [mise](https://mise.jdx.dev/) | Pins Java/Maven/Node via `.mise.toml` |
 | CI | GitHub Actions | Workflow at `.github/workflows/ci.yml` |
 
@@ -111,7 +111,7 @@ kind create cluster
 helm repo add dapr https://dapr.github.io/helm-charts/
 helm repo update
 helm upgrade --install dapr dapr/dapr \
-  --version=1.17.1 \
+  --version=1.17.4 \
   --namespace dapr-system \
   --create-namespace \
   --wait
