@@ -1,5 +1,12 @@
 package io.diagrid.dapr;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonValue;
+import io.dapr.client.DaprClient;
+import io.dapr.client.DaprClientBuilder;
+import io.dapr.client.domain.CloudEvent;
+import io.dapr.client.domain.State;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -18,15 +25,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
-
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonValue;
-
-import io.dapr.client.DaprClient;
-import io.dapr.client.DaprClientBuilder;
-import io.dapr.client.domain.CloudEvent;
-import io.dapr.client.domain.State;
 
 @SpringBootApplication
 @RestController
@@ -47,8 +45,7 @@ public class PizzaStore {
     return new Info(publicIp);
   }
 
-  public record Info(String publicIp) {
-  }
+  public record Info(String publicIp) {}
 
   private String key = "orders";
   private static RestTemplate restTemplate;
@@ -57,7 +54,6 @@ public class PizzaStore {
 
   public static void main(String[] args) {
     SpringApplication.run(PizzaStore.class, args);
-
   }
 
   public PizzaStore(SimpMessagingTemplate simpMessagingTemplate) {
@@ -76,39 +72,45 @@ public class PizzaStore {
 
   private void emitWSEvent(Event event) {
     System.out.println("Emitting Event via WS: " + event.toString());
-    simpMessagingTemplate.convertAndSend("/topic/events",
-        event);
+    simpMessagingTemplate.convertAndSend("/topic/events", event);
   }
 
   private void prepareOrderForDelivery(Order order) {
     store(new Order(order.id, order.customer, order.items, order.orderDate, Status.delivery));
     // Emit Event
-    Event event = new Event(EventType.ORDER_OUT_FOR_DELIVERY, order, "store", "Delivery in progress.");
+    Event event =
+        new Event(EventType.ORDER_OUT_FOR_DELIVERY, order, "store", "Delivery in progress.");
     emitWSEvent(event);
 
     callDeliveryService(order);
-
   }
 
   @PostMapping("/order")
-  public ResponseEntity<Order> placeOrder(@RequestBody(required = true) Order order, Map<String, String> headers) throws Exception {
-    new Thread(new Runnable() {
-      @Override
-      public void run() {
-        // Emit Event
-        Event event = new Event(EventType.ORDER_PLACED, order, "store", "We received the payment your order is confirmed.");
+  public ResponseEntity<Order> placeOrder(
+      @RequestBody(required = true) Order order, Map<String, String> headers) throws Exception {
+    new Thread(
+            new Runnable() {
+              @Override
+              public void run() {
+                // Emit Event
+                Event event =
+                    new Event(
+                        EventType.ORDER_PLACED,
+                        order,
+                        "store",
+                        "We received the payment your order is confirmed.");
 
-        emitWSEvent(event);
-        // Store Order
-        store(order);
+                emitWSEvent(event);
+                // Store Order
+                store(order);
 
-        // Process Order, sent to kitcken
-        callKitchenService(order);
-      }
-    }).start();
+                // Process Order, sent to kitcken
+                callKitchenService(order);
+              }
+            })
+        .start();
 
     return ResponseEntity.ok(order);
-
   }
 
   @GetMapping("/order")
@@ -119,28 +121,41 @@ public class PizzaStore {
     return ResponseEntity.ok(orders);
   }
 
-  public record Customer(@JsonProperty String name, @JsonProperty String email) {
-  }
+  public record Customer(@JsonProperty String name, @JsonProperty String email) {}
 
-  public record OrderItem(@JsonProperty PizzaType type, @JsonProperty int amount) {
-  }
+  public record OrderItem(@JsonProperty PizzaType type, @JsonProperty int amount) {}
 
   public enum PizzaType {
-    pepperoni, margherita, hawaiian, vegetarian,
-    kubernetescheese, daprcheese, clustertomatoes,
-    diagridpepperoni, distributedolives, opensauce,
-    workflowspread, plantbasedobservability, bindingsbacon
+    pepperoni,
+    margherita,
+    hawaiian,
+    vegetarian,
+    kubernetescheese,
+    daprcheese,
+    clustertomatoes,
+    diagridpepperoni,
+    distributedolives,
+    opensauce,
+    workflowspread,
+    plantbasedobservability,
+    bindingsbacon
   }
 
   public enum Status {
-    created, placed, notplaced, instock, notinstock, inpreparation, delivery, completed, failed
+    created,
+    placed,
+    notplaced,
+    instock,
+    notinstock,
+    inpreparation,
+    delivery,
+    completed,
+    failed
   }
 
-  public record Event(EventType type, Order order, String service, String message) {
-  }
+  public record Event(EventType type, Order order, String service, String message) {}
 
   public enum EventType {
-
     ORDER_PLACED("order-placed"),
     ITEMS_IN_STOCK("items-in-stock"),
     ITEMS_NOT_IN_STOCK("items-not-in-stock"),
@@ -162,17 +177,20 @@ public class PizzaStore {
     }
   }
 
-  public record KitchenResponse(@JsonProperty String message, @JsonProperty String orderId) {
-  }
+  public record KitchenResponse(@JsonProperty String message, @JsonProperty String orderId) {}
 
-  private record Orders(@JsonProperty List<Order> orders) {
-  }
+  private record Orders(@JsonProperty List<Order> orders) {}
 
-  public record Order(@JsonProperty String id, @JsonProperty Customer customer, @JsonProperty List<OrderItem> items,
-      @JsonProperty Date orderDate, @JsonProperty Status status) {
+  public record Order(
+      @JsonProperty String id,
+      @JsonProperty Customer customer,
+      @JsonProperty List<OrderItem> items,
+      @JsonProperty Date orderDate,
+      @JsonProperty Status status) {
 
     @JsonCreator(mode = JsonCreator.Mode.PROPERTIES)
-    public Order(String id, Customer customer, List<OrderItem> items, Date orderDate, Status status) {
+    public Order(
+        String id, Customer customer, List<OrderItem> items, Date orderDate, Status status) {
       if (id == null) {
         this.id = UUID.randomUUID().toString();
       } else {
@@ -228,8 +246,7 @@ public class PizzaStore {
     headers.add("dapr-app-id", "kitchen-service");
     HttpEntity<Order> request = new HttpEntity<Order>(order, headers);
     System.out.println("Calling Kitchen service at: " + daprHttp + "/prepare");
-    restTemplate.put(
-        daprHttp + "/prepare", request);
+    restTemplate.put(daprHttp + "/prepare", request);
   }
 
   private void callDeliveryService(Order order) {
@@ -239,8 +256,7 @@ public class PizzaStore {
     headers.add("dapr-app-id", "delivery-service");
     HttpEntity<Order> request = new HttpEntity<Order>(order, headers);
     System.out.println("Calling Delivery service at: " + daprHttp + "/deliver");
-    restTemplate.put(
-        daprHttp + "/deliver", request);
+    restTemplate.put(daprHttp + "/deliver", request);
   }
 
   private Orders loadOrders() {
@@ -252,7 +268,5 @@ public class PizzaStore {
       ex.printStackTrace();
     }
     return null;
-
   }
-
 }

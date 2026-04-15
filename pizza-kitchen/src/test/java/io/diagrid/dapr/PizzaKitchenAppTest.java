@@ -5,8 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
 public class PizzaKitchenAppTest {
-    public static void main(String[] args) {
-        SpringApplication.from(PizzaKitchen::main)
-                .run(args);
-    }
+  public static void main(String[] args) {
+    SpringApplication.from(PizzaKitchen::main).run(args);
+  }
 }
