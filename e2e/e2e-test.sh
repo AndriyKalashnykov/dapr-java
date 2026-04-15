@@ -4,8 +4,9 @@
 # Assumes `make kind-up` has already deployed the three services
 # (pizza-store, pizza-kitchen, pizza-delivery) plus Dapr + state store +
 # pub-sub to a local KinD cluster, and that pizza-store is reachable at
-# $GATEWAY_IP:$GATEWAY_PORT (LoadBalancer via MetalLB, or the caller
-# exports GATEWAY_IP via `kubectl port-forward`).
+# $GATEWAY_IP:$GATEWAY_PORT (LoadBalancer IP provisioned by
+# cloud-provider-kind, or the caller exports GATEWAY_IP via `kubectl
+# port-forward`).
 #
 # What this exercises (per /test-coverage-analysis skill §"What e2e MUST cover"):
 #   1. Service health (all pods ready + /actuator/health returns 200)
@@ -30,7 +31,7 @@ GATEWAY_PORT="${GATEWAY_PORT:-80}"
 KUBECTL="${KUBECTL:-kubectl}"
 
 if [[ -z "$GATEWAY_IP" ]]; then
-  echo "GATEWAY_IP not set; attempting to discover from MetalLB-exposed Service..." >&2
+  echo "GATEWAY_IP not set; discovering from pizza-store LoadBalancer..." >&2
   for _ in $(seq 1 60); do
     GATEWAY_IP=$($KUBECTL get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
     [[ -n "$GATEWAY_IP" ]] && break
@@ -39,7 +40,7 @@ if [[ -z "$GATEWAY_IP" ]]; then
 fi
 
 if [[ -z "$GATEWAY_IP" ]]; then
-  echo "FATAL: could not resolve pizza-store LoadBalancer IP. Is MetalLB configured?" >&2
+  echo "FATAL: could not resolve pizza-store LoadBalancer IP. Is cloud-provider-kind running?" >&2
   exit 2
 fi
 

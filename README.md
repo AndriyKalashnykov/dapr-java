@@ -9,6 +9,20 @@ Reference implementation of a three-service Java microservice platform on [Dapr]
 
 [Quarkus implementation available here (Thanks to @mcruzdev1!)](https://github.com/mcruzdev/pizza-quarkus)
 
+```mermaid
+C4Context
+  title System Context — Cloud-Native Pizza Store
+
+  Person(customer, "Customer", "Places and tracks pizza orders")
+  System(pizza, "Pizza Store Platform", "Orders, cooks, and delivers pizzas on Spring Boot 4 + Dapr")
+  System_Ext(dapr, "Dapr Runtime", "Sidecar building blocks — service invocation, pub/sub, state")
+
+  Rel(customer, pizza, "Places and tracks orders", "HTTPS / WebSocket")
+  Rel(pizza, dapr, "Uses building blocks", "HTTP / gRPC")
+
+  UpdateLayoutConfig($c4ShapeInRow="3")
+```
+
 ![Pizza Store](imgs/pizza-store.png)
 
 ## Tech Stack
@@ -64,23 +78,78 @@ make env-check
 
 ## Architecture
 
-The Pizza Store application simulates placing a Pizza Order that is processed by different services. The Pizza Store Service serves as the frontend and backend to place orders. Orders are sent to the Kitchen Service for preparation and once ready, the Delivery Service takes the order to your door.
+The Pizza Store application simulates placing a Pizza Order that is processed by three Spring Boot 4 services communicating over Dapr building blocks. The Pizza Store Service serves as the frontend and backend to place orders; orders are sent to the Kitchen Service for preparation and once ready, the Delivery Service takes the order to the customer. [Dapr](https://dapr.io) decouples the services from infrastructure — [building block APIs](https://docs.dapr.io/concepts/building-blocks-concept/) (State Store, PubSub, Service Invocation) let infrastructure teams swap PostgreSQL/Kafka (prod) for Redis (e2e) without touching application code.
 
-![Architecture](imgs/architecture.png)
+### Container View
 
-These services need a persistent store (PostgreSQL) and a message broker (Kafka) for event-driven communication.
+<img src="docs/diagrams/out/c4-container.png" alt="C4 Container diagram" width="900">
 
-![Architecture with Infra](imgs/architecture+infra.png)
+- **pizza-store** — frontend + backend; places orders via the Dapr state API (`kvstore`), invokes `kitchen-service`/`delivery-service` via Dapr service invocation, subscribes to `pubsub/topic` CloudEvents on `POST /events`, and pushes live status to the browser via WebSocket `/topic/events`.
+- **pizza-kitchen** — receives `PUT /prepare` through its Dapr sidecar; simulates cooking and publishes `ORDER_IN_PREPARATION` then `ORDER_READY` to the shared `pubsub` component on topic `topic`.
+- **pizza-delivery** — receives `PUT /deliver` through its sidecar; emits `ORDER_ON_ITS_WAY` (three times) and `ORDER_COMPLETED` as three-second stages advance.
+- **Dapr sidecar** (1.17.2, one per pod) — brokers all cross-service traffic; apps never address each other directly.
+- **State Store** (`kvstore`) — PostgreSQL in production, Redis in e2e.
+- **PubSub** (`pubsub`, topic `topic`) — Kafka in production, Redis in e2e.
 
-Adding [Dapr](https://dapr.io) decouples services from infrastructure. Dapr provides [building block APIs](https://docs.dapr.io/concepts/building-blocks-concept/) (StateStore, PubSub) so developers don't need to choose or configure specific drivers and clients. Infrastructure teams can swap components without impacting application code.
+### Order Flow
 
-![Architecture with Dapr](imgs/architecture+dapr.png)
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Customer
+  participant S as pizza-store
+  participant K as pizza-kitchen
+  participant D as pizza-delivery
+  participant PS as Dapr PubSub (topic)
+  participant ST as Dapr State Store (kvstore)
+
+  C->>S: POST /order (HTTPS / JSON)
+  S->>ST: Upsert order (status=placed)
+  S->>C: WS ORDER_PLACED
+  S->>K: PUT /prepare (Dapr service invoke)
+  K->>PS: Publish ORDER_IN_PREPARATION
+  PS->>S: POST /events (CloudEvent)
+  S->>C: WS ORDER_IN_PREPARATION
+  K->>PS: Publish ORDER_READY
+  PS->>S: POST /events
+  S->>ST: Upsert order (status=delivery)
+  S->>C: WS ORDER_OUT_FOR_DELIVERY
+  S->>D: PUT /deliver (Dapr service invoke)
+  loop 3 delivery stages
+    D->>PS: Publish ORDER_ON_ITS_WAY
+    PS->>S: POST /events
+    S->>C: WS ORDER_ON_ITS_WAY
+  end
+  D->>PS: Publish ORDER_COMPLETED
+  PS->>S: POST /events
+  S->>ST: Upsert order (status=completed)
+  S->>C: WS ORDER_COMPLETED
+```
+
+### Deployment
+
+<img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="900">
+
+- Each service runs as a single-replica `Deployment` in the `default` namespace with a Dapr sidecar injected via the `dapr.io/enabled` annotation and a matching `dapr.io/app-id`.
+- `pizza-store` is exposed through a `Service` of type `LoadBalancer` (MetalLB on KinD, cloud LB in production) bridging port 80 → container 8080.
+- The Dapr control plane (`dapr-operator`, `placement`, `sentry`, `injector`) runs in the `dapr-system` namespace via the official Helm chart (1.17.4).
+- PubSub and State Store components resolve to Redis for e2e (`k8s/components-e2e.yaml`) and to Kafka + PostgreSQL in production.
+
+Source files live in [`docs/diagrams/`](docs/diagrams/); regenerate the PNGs with `make diagrams`.
 
 ## Testing
 
 Tests use [Testcontainers](https://testcontainers.com) with [`io.dapr:testcontainers-dapr`](https://central.sonatype.com/artifact/io.dapr/testcontainers-dapr) to automatically start Dapr sidecars and placement services. Integration tests run outside of Kubernetes without any manual Dapr setup — only Docker is required.
 
-![Testcontainers + Dapr](imgs/testcontainers-dapr.png)
+```mermaid
+flowchart LR
+  mvn["mvn test (JUnit 5)"] --> tc["Testcontainers runtime"]
+  tc -->|starts| dapr["Dapr sidecar container<br/>(testcontainers-dapr 1.17.2)"]
+  tc -->|starts| wm["WireMock container<br/>(kitchen-service-stubs.json)"]
+  dapr -->|pubsub.in-memory| app["Spring Boot 4 app<br/>@SpringBootTest"]
+  wm --> app
+  app -->|asserts events on| sub["SubscriptionsRestController<br/>POST /events"]
+```
 
 Two test layers are exposed:
 

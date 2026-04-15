@@ -29,19 +29,25 @@ GITLEAKS_VERSION := 8.30.1
 GJF_VERSION := 1.35.0
 # renovate: datasource=github-releases depName=kubernetes-sigs/kind
 KIND_VERSION := 0.31.0
-# renovate: datasource=github-releases depName=metallb/metallb
-METALLB_VERSION := 0.15.3
+# renovate: datasource=github-releases depName=kubernetes-sigs/cloud-provider-kind
+CLOUD_PROVIDER_KIND_VERSION := 0.10.0
 # renovate: datasource=docker depName=kindest/node
-# Pinned to v1.34.3 (not v1.35.0) because MetalLB 0.15.3 has a known issue on
-# kindest/node:v1.35.0 where the controller cannot reach the K8s API (nftables
-# iptables interaction). Bump to v1.35.x once MetalLB releases a fix.
-KIND_NODE_IMAGE := kindest/node:v1.34.3@sha256:08497ee19eace7b4b5348db5c6a1591d7752b164530a36f855cb0f2bdcbadd48
+KIND_NODE_IMAGE := kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
 DAPR_HELM_VERSION := 1.17.4
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
 KUBECTL_VERSION := 1.35.3
 # renovate: datasource=github-releases depName=helm/helm
 HELM_VERSION := 3.20.1
+# renovate: datasource=docker depName=plantuml/plantuml
+PLANTUML_VERSION := 1.2026.2
+# renovate: datasource=docker depName=minlag/mermaid-cli
+MERMAID_CLI_VERSION := 11.12.0
+
+# === Diagrams ===
+DIAGRAM_DIR := docs/diagrams
+DIAGRAM_SRC := $(wildcard $(DIAGRAM_DIR)/*.puml)
+DIAGRAM_OUT := $(patsubst $(DIAGRAM_DIR)/%.puml,$(DIAGRAM_DIR)/out/%.png,$(DIAGRAM_SRC))
 
 # === KinD cluster ===
 KIND_CLUSTER_NAME := dapr-java
@@ -265,8 +271,46 @@ deps-prune-check: deps-check
 	fi
 	@echo "No unused declared Maven dependencies."
 
-#static-check: @ Composite quality gate (format-check + lint + trivy-fs + trivy-config + secrets)
-static-check: format-check lint trivy-fs trivy-config secrets
+#diagrams: @ Render PlantUML architecture diagrams to PNG under docs/diagrams/out/
+diagrams: $(DIAGRAM_OUT)
+
+$(DIAGRAM_DIR)/out/%.png: $(DIAGRAM_DIR)/%.puml $(DIAGRAM_DIR)/_skinparam.iuml
+	@mkdir -p $(DIAGRAM_DIR)/out
+	@docker run --rm -u $$(id -u):$$(id -g) \
+		-v "$(CURDIR)/$(DIAGRAM_DIR):/work" -w /work \
+		-e HOME=/tmp -e _JAVA_OPTIONS=-Duser.home=/tmp \
+		plantuml/plantuml:$(PLANTUML_VERSION) \
+		-tpng -o out $(notdir $<)
+
+#diagrams-clean: @ Remove rendered diagram artefacts
+diagrams-clean:
+	@rm -rf $(DIAGRAM_DIR)/out
+
+#diagrams-check: @ Verify committed diagrams match current source (CI drift check)
+diagrams-check: diagrams
+	@git diff --exit-code -- $(DIAGRAM_DIR)/out || { \
+		echo "ERROR: Diagram source changed but rendered output not updated. Run 'make diagrams' and commit."; \
+		exit 1; \
+	}
+
+#mermaid-lint: @ Lint Mermaid code blocks embedded in markdown files
+mermaid-lint:
+	@files=$$(grep -rl --include='*.md' --exclude-dir=target --exclude-dir=node_modules '```mermaid' . 2>/dev/null || true); \
+	if [ -z "$$files" ]; then \
+		echo "No Mermaid blocks found — skipping."; \
+		exit 0; \
+	fi; \
+	for f in $$files; do \
+		echo "--- Linting Mermaid blocks in $$f ---"; \
+		docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR):/data" \
+			minlag/mermaid-cli:$(MERMAID_CLI_VERSION) \
+			-i "/data/$$f" -o "/data/$(DIAGRAM_DIR)/out/.mermaid-lint.png" \
+			> /dev/null || { echo "FAIL: Mermaid lint failed in $$f"; exit 1; }; \
+	done; \
+	rm -f $(DIAGRAM_DIR)/out/.mermaid-lint*.png
+
+#static-check: @ Composite quality gate (format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint)
+static-check: format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint
 	@echo "All static checks passed"
 
 #run: @ Run the application
@@ -345,7 +389,7 @@ image-build: deps-check
 			|| { echo "FAIL: spring-boot:build-image failed for $$svc"; exit 1; }; \
 	done
 
-#kind-create: @ Create KinD cluster, install MetalLB and Dapr via Helm
+#kind-create: @ Create KinD cluster, start cloud-provider-kind LB controller, install Dapr via Helm
 kind-create: deps-kind deps-kubectl deps-helm
 	@if $(HOME)/.local/bin/kind get clusters 2>/dev/null | grep -q "^$(KIND_CLUSTER_NAME)$$"; then \
 		echo "KinD cluster $(KIND_CLUSTER_NAME) already exists; reusing."; \
@@ -357,18 +401,18 @@ kind-create: deps-kind deps-kubectl deps-helm
 			--config k8s/kind-config.yaml \
 			--wait 120s; \
 	fi
-	@echo "--- Installing MetalLB v$(METALLB_VERSION) ---"
-	@$(KUBECTL) apply -f \
-		https://raw.githubusercontent.com/metallb/metallb/v$(METALLB_VERSION)/config/manifests/metallb-native.yaml
-	@echo "--- Waiting for MetalLB control plane (deployment + daemonset) ---"
-	@$(KUBECTL) -n metallb-system rollout status deployment/controller --timeout=180s
-	@$(KUBECTL) -n metallb-system rollout status daemonset/speaker --timeout=180s
-	@echo "--- Configuring MetalLB IP pool from KinD docker network ---"
-	@ip_sub=$$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' \
-		| tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.' | grep -v ':' | head -1 \
-		| awk -F. '{printf "%d.%d", $$1, $$2}'); \
-		echo "Using IP subnet $${ip_sub}.255.200-$${ip_sub}.255.250"; \
-		sed "s/METALLB_IP_SUB/$${ip_sub}/g" k8s/metallb-config.yaml | $(KUBECTL) apply -f -
+	@# cloud-provider-kind replaces MetalLB for LoadBalancer IP provisioning.
+	@# It runs on the host (not in the cluster) and watches Services of type
+	@# LoadBalancer to hand out IPs on the 'kind' Docker network. Kind-team
+	@# maintained; works natively on kindest/node v1.35.x (MetalLB 0.15.3 hit
+	@# an nftables regression there).
+	@echo "--- Starting cloud-provider-kind v$(CLOUD_PROVIDER_KIND_VERSION) ---"
+	@docker rm -f cloud-provider-kind >/dev/null 2>&1 || true
+	@docker run --rm -d \
+		--name cloud-provider-kind \
+		--network kind \
+		-v /var/run/docker.sock:/var/run/docker.sock \
+		registry.k8s.io/cloud-provider-kind/cloud-controller-manager:v$(CLOUD_PROVIDER_KIND_VERSION) >/dev/null
 	@echo "--- Installing Dapr $(DAPR_HELM_VERSION) via Helm ---"
 	@$(HELM) repo add dapr https://dapr.github.io/helm-charts/ 2>/dev/null || true
 	@$(HELM) repo update dapr
@@ -424,8 +468,9 @@ kind-undeploy: deps-kubectl
 	@$(KUBECTL) delete -f k8s/components-e2e.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/redis-e2e.yaml --ignore-not-found 2>/dev/null || true
 
-#kind-destroy: @ Delete the KinD cluster
+#kind-destroy: @ Delete the KinD cluster and stop cloud-provider-kind
 kind-destroy: deps-kind
+	@docker rm -f cloud-provider-kind 2>/dev/null || true
 	@$(HOME)/.local/bin/kind delete cluster --name $(KIND_CLUSTER_NAME) 2>/dev/null || true
 
 #kind-up: @ Alias for kind-create + kind-deploy (full stack up)
@@ -464,4 +509,5 @@ release:
 	ci ci-run cve-check coverage-generate coverage-check coverage-open \
 	print-deps-updates update-deps renovate-validate \
 	image-build kind-create kind-deploy kind-undeploy kind-destroy \
-	kind-up kind-down e2e release
+	kind-up kind-down e2e release \
+	diagrams diagrams-clean diagrams-check mermaid-lint

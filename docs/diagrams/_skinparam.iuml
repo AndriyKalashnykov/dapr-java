@@ -1,0 +1,20 @@
+' Modern flat skinparam — shared across all C4 diagrams in this project.
+' Palette: teal (Person) / indigo (Container) / violet (ContainerDb) / slate (Boundary).
+' Portable across GitHub light + dark themes; contrast ratio >= 4.5:1 with white text.
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam roundCorner 4
+skinparam defaultFontName "Inter, Helvetica, Arial, sans-serif"
+skinparam defaultFontSize 13
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.2
+skinparam rectangleBorderThickness 1.3
+
+UpdateElementStyle("person",        $fontColor="#FFFFFF", $bgColor="#0F766E", $borderColor="#134E4A")
+UpdateElementStyle("container",     $fontColor="#FFFFFF", $bgColor="#2563EB", $borderColor="#1E3A8A")
+UpdateElementStyle("container_db",  $fontColor="#FFFFFF", $bgColor="#7C3AED", $borderColor="#4C1D95")
+UpdateElementStyle("container_queue",$fontColor="#FFFFFF", $bgColor="#DB2777", $borderColor="#831843")
+UpdateElementStyle("system",        $fontColor="#FFFFFF", $bgColor="#2563EB", $borderColor="#1E3A8A")
+UpdateElementStyle("system_ext",    $fontColor="#FFFFFF", $bgColor="#64748B", $borderColor="#334155")
+UpdateBoundaryStyle($bgColor="#F1F5F9", $borderColor="#94A3B8", $fontColor="#1E293B")

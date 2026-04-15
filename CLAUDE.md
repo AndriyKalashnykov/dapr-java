@@ -46,7 +46,7 @@ make release VERSION=x.y.z              # Create a semver release tag
 |-------|---------|-------|---------|
 | Unit | `make test` | `**/*Test.java` via Surefire, in-memory PubSub Dapr sidecars | Seconds |
 | Integration | `make integration-test` | `**/*IT.java` via Failsafe, real deps via Testcontainers (no tests exist yet) | Tens of seconds |
-| E2E | `make e2e` | `e2e/e2e-test.sh` against KinD (MetalLB LoadBalancer + Dapr Helm + in-memory pubsub/state store). Asserts health, order placement, cross-service fan-out lifecycle (store → kitchen → delivery), state store round-trip, and a negative case. | Minutes |
+| E2E | `make e2e` | `e2e/e2e-test.sh` against KinD (cloud-provider-kind LoadBalancer + Dapr Helm + in-memory pubsub/state store). Asserts health, order placement, cross-service fan-out lifecycle (store → kitchen → delivery), state store round-trip, and a negative case. | Minutes |
 
 ### Single module commands
 
@@ -120,11 +120,11 @@ Last reviewed: 2026-04-15
 - [ ] **Spring Boot 4.0 EOL (2026-12-31)** — monitor 4.1 release schedule, plan upgrade before Dec 2026
 - [ ] **Alpha dependencies** — `opentelemetry-instrumentation-bom-alpha`, `wiremock-testcontainers` 1.0-alpha-15. Track GA releases.
 - [ ] **OWASP dependency-check NVD deserializer bug** — 12.2.1 cannot parse 9-digit nanosecond timestamps from the NVD API (`Failed to deserialize java.time.ZonedDateTime ... unparsed text found at index 23`). `cve-check` CI step is `continue-on-error: true` until a fixed release; re-enable strict failure once upstream ships. Track: dependency-check/DependencyCheck.
-- [ ] **kindest/node v1.34.3 pin** — `KIND_NODE_IMAGE` deliberately held at v1.34.3; MetalLB 0.15.3 controller cannot reach the K8s API on v1.35.x due to an nftables/iptables interaction. Bump once MetalLB releases a fix.
-- [ ] **Single-app DaprContainer limitation** — `testcontainers-dapr 1.17.2` exposes only one `withAppName/withAppPort`, so `KitchenInvocationIT` and `DeliveryInvocationIT` override `DAPR_HTTP_ENDPOINT` to WireMock instead of a real peer-app side-channel. The sidecar hop itself is covered by the KinD e2e. Re-wire via DaprContainer once multi-app support lands upstream.
+- [x] **MetalLB → cloud-provider-kind + kindest/node v1.35.0** — replaced in-cluster MetalLB with kind-team's cloud-provider-kind (runs as a host-side controller, no nftables interaction). Unblocks the kindest/node v1.35.0 bump. (2026-04-15)
+- [ ] **Single-app DaprContainer limitation** — confirmed upstream-blocked: `dapr/java-sdk:testcontainers-dapr/.../DaprContainer.java` still exposes only single `appName/appPort/appChannelAddress` fields (no peer-app registration). Workaround in `KitchenInvocationIT` / `DeliveryInvocationIT`: override `DAPR_HTTP_ENDPOINT` to a WireMock receiver — this verifies the emitted HTTP contract (verb, path, body) but bypasses the sidecar invoke hop. The full sidecar→app→sidecar path is covered by the KinD e2e via `make e2e`. A richer approach would be two `DaprContainer` instances sharing a placement service on a common Docker network; not attempted because (a) upstream doesn't expose `withPlacementService` in a way that makes app IDs cross-routable, and (b) the e2e already gives us that coverage. Re-wire once upstream adds multi-app support.
 - [x] **Raise JaCoCo threshold to 0.80** — Failsafe coverage aggregation wired via `jacoco:merge`; `coverage-generate` now runs `mvn verify -P integration-test` and reports merged unit+IT coverage (pizza-store 0.89, pizza-kitchen 0.88, pizza-delivery 0.93) (2026-04-15).
 - [x] **Add integration tests (`**/*IT.java`)** — state store round-trip, kitchen invocation, delivery invocation, WebSocket broadcast (2026-04-15)
-- [x] **Add `make e2e` target + KinD/MetalLB** — full KinD lifecycle, MetalLB, Dapr Helm, e2e script asserting order fan-out (2026-04-15)
+- [x] **Add `make e2e` target + KinD/cloud-provider-kind** — full KinD lifecycle, cloud-provider-kind LoadBalancer, Dapr Helm, e2e script asserting order fan-out (2026-04-15)
 - [x] **Dapr 1.17.1 → 1.17.2; Jackson 3.1.1 → 3.1.2; OTel 1.60.1 → 1.61.0** — patch bumps (2026-04-15)
 - [x] **Dapr Helm chart bump** — chart aligned to 1.17.4 via `DAPR_HELM_VERSION` in Makefile (2026-04-15)
 - [ ] **Replace hand-drawn architecture PNGs with C4-PlantUML** — `architecture.png`, `architecture+infra.png`, `architecture+dapr.png` lack source; the `+` in filenames also complicates URL-encoding. Follow-up `/architecture-diagrams`.

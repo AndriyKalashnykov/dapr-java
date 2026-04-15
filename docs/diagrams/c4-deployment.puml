@@ -1,0 +1,46 @@
+@startuml c4-deployment
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.13.0/C4_Deployment.puml
+!include _skinparam.iuml
+
+title Deployment — Kubernetes (Pizza Store Platform)
+
+Person(customer, "Customer")
+
+Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
+  Deployment_Node(ns, "Namespace: default") {
+    Container(lb, "Service: pizza-store", "LoadBalancer 80 -> 8080 (MetalLB)")
+
+    Deployment_Node(storePod, "Pod: pizza-store-deployment") {
+      Container(storeApp, "pizza-store", "Spring Boot 4.0.5, Java 21")
+      Container(storeDapr, "Dapr sidecar", "app-id: pizza-store")
+    }
+    Deployment_Node(kitchenPod, "Pod: pizza-kitchen-deployment") {
+      Container(kitchenApp, "pizza-kitchen", "Spring Boot 4.0.5, Java 21")
+      Container(kitchenDapr, "Dapr sidecar", "app-id: kitchen-service")
+    }
+    Deployment_Node(deliveryPod, "Pod: pizza-delivery-deployment") {
+      Container(deliveryApp, "pizza-delivery", "Spring Boot 4.0.5, Java 21")
+      Container(deliveryDapr, "Dapr sidecar", "app-id: delivery-service")
+    }
+
+    ContainerQueue(pubsub, "PubSub backend", "Kafka (prod) / Redis (e2e)")
+    ContainerDb(state, "State Store backend", "PostgreSQL (prod) / Redis (e2e)")
+  }
+
+  Deployment_Node(daprSys, "Namespace: dapr-system") {
+    Container(daprCtrl, "Dapr control plane", "Helm chart dapr 1.17.4 — operator, placement, sentry, injector")
+  }
+}
+
+Rel(customer, lb, "HTTPS / WebSocket")
+Rel(lb, storeApp, "Routes to 8080")
+
+Rel(storeDapr, kitchenDapr, "Service invocation", "mTLS HTTP/gRPC")
+Rel(storeDapr, deliveryDapr, "Service invocation", "mTLS HTTP/gRPC")
+Rel(storeDapr, state, "Persist orders")
+Rel(kitchenDapr, pubsub, "Publish events")
+Rel(deliveryDapr, pubsub, "Publish events")
+Rel(pubsub, storeDapr, "Deliver subscribed events")
+
+SHOW_LEGEND()
+@enduml
