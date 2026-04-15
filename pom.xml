@@ -189,24 +189,51 @@
                     <artifactId>jacoco-maven-plugin</artifactId>
                     <version>0.8.14</version>
                     <executions>
+                        <!-- Surefire (unit) agent + exec file -->
                         <execution>
-                            <goals>
-                                <goal>prepare-agent</goal>
-                            </goals>
+                            <id>prepare-agent-unit</id>
+                            <goals><goal>prepare-agent</goal></goals>
+                            <configuration>
+                                <destFile>${project.build.directory}/jacoco.exec</destFile>
+                            </configuration>
+                        </execution>
+                        <!-- Failsafe (integration) agent + separate exec file -->
+                        <execution>
+                            <id>prepare-agent-integration</id>
+                            <goals><goal>prepare-agent-integration</goal></goals>
+                            <configuration>
+                                <destFile>${project.build.directory}/jacoco-it.exec</destFile>
+                            </configuration>
+                        </execution>
+                        <!-- Merge unit + integration into a single aggregate exec file for the report/check -->
+                        <execution>
+                            <id>merge-exec</id>
+                            <phase>verify</phase>
+                            <goals><goal>merge</goal></goals>
+                            <configuration>
+                                <fileSets>
+                                    <fileSet>
+                                        <directory>${project.build.directory}</directory>
+                                        <includes>
+                                            <include>jacoco.exec</include>
+                                            <include>jacoco-it.exec</include>
+                                        </includes>
+                                    </fileSet>
+                                </fileSets>
+                                <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+                            </configuration>
                         </execution>
                     </executions>
                     <configuration>
+                        <!-- Point report + check goals at the merged exec file -->
+                        <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
                         <rules>
                             <rule>
                                 <limits>
                                     <limit>
-                                        <!-- Portfolio target: 0.80. Currently 0.79 on pizza-store in unit-test-only
-                                             runs (coverage-generate invokes surefire); integration-test adds ~10pp to
-                                             pizza-store but isn't aggregated into the report yet. Kitchen 0.88,
-                                             delivery 0.93 both clear 0.80 on unit tests alone. Raise to 0.80 once
-                                             Failsafe coverage aggregation is wired or a pizza-store unit test lifts
-                                             it past the threshold. -->
-                                        <minimum>0.79</minimum>
+                                        <!-- Portfolio target — counts unit + integration coverage merged.
+                                             pizza-store 0.89, pizza-kitchen 0.88, pizza-delivery 0.93. -->
+                                        <minimum>0.80</minimum>
                                     </limit>
                                 </limits>
                             </rule>

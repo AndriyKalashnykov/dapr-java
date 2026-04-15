@@ -120,7 +120,7 @@ Last reviewed: 2026-04-15
 - [ ] **Spring Boot 4.0 EOL (2026-12-31)** — monitor 4.1 release schedule, plan upgrade before Dec 2026
 - [ ] **Alpha dependencies** — `opentelemetry-instrumentation-bom-alpha`, `wiremock-testcontainers` 1.0-alpha-15. Track GA releases.
 - [ ] **OWASP dependency-check NVD deserializer bug** — 12.2.1 cannot parse 9-digit nanosecond timestamps from the NVD API (`Failed to deserialize java.time.ZonedDateTime ... unparsed text found at index 23`). `cve-check` CI step is `continue-on-error: true` until a fixed release; re-enable strict failure once upstream ships. Track: dependency-check/DependencyCheck.
-- [ ] **Raise JaCoCo threshold to 0.80** — current 0.79 (surefire-only measurement on pizza-store); ~0.90 when Failsafe IT coverage is included. Wire Failsafe JaCoCo aggregation into `make coverage-generate`, or add a unit test that lifts pizza-store past 0.80.
+- [x] **Raise JaCoCo threshold to 0.80** — Failsafe coverage aggregation wired via `jacoco:merge`; `coverage-generate` now runs `mvn verify -P integration-test` and reports merged unit+IT coverage (pizza-store 0.89, pizza-kitchen 0.88, pizza-delivery 0.93) (2026-04-15).
 - [x] **Add integration tests (`**/*IT.java`)** — state store round-trip, kitchen invocation, delivery invocation, WebSocket broadcast (2026-04-15)
 - [x] **Add `make e2e` target + KinD/MetalLB** — full KinD lifecycle, MetalLB, Dapr Helm, e2e script asserting order fan-out (2026-04-15)
 - [x] **Dapr 1.17.1 → 1.17.2; Jackson 3.1.1 → 3.1.2; OTel 1.60.1 → 1.61.0** — patch bumps (2026-04-15)

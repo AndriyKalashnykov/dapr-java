@@ -293,11 +293,15 @@ ci-run: deps-act
 cve-check: deps-check
 	@mvn -B dependency-check:check $(if $(NVD_API_KEY),-DnvdApiKey=$(NVD_API_KEY))
 
-#coverage-generate: @ Generate code coverage report
+#coverage-generate: @ Generate merged unit + integration coverage report
 coverage-generate: deps-check
-	@mvn -B test -Ddependency-check.skip=true jacoco:report
+	@# Runs surefire (unit), failsafe (integration), merges exec files in
+	@# the verify phase via the jacoco:merge execution, then writes the
+	@# HTML report from the merged data. -Dsurefire.skip=false is explicit
+	@# in case a profile disables it elsewhere.
+	@mvn -B verify -P integration-test -Ddependency-check.skip=true jacoco:report
 
-#coverage-check: @ Verify code coverage meets minimum threshold (>80%)
+#coverage-check: @ Verify merged coverage meets minimum threshold (>=80%)
 coverage-check: deps-check
 	@mvn -B jacoco:check
 
