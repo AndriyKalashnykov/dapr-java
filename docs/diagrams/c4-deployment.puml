@@ -10,17 +10,9 @@ Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
   Deployment_Node(ns, "Namespace: default") {
     Container(lb, "Service: pizza-store", "LoadBalancer 80 -> 8080 (cloud-provider-kind / cloud LB)")
 
-    Deployment_Node(storePod, "Pod: pizza-store-deployment") {
-      Container(storeApp, "pizza-store", "Spring Boot 4.0.5, Java 21")
-      Container(storeDapr, "Dapr sidecar", "app-id: pizza-store")
-    }
-    Deployment_Node(kitchenPod, "Pod: pizza-kitchen-deployment") {
-      Container(kitchenApp, "pizza-kitchen", "Spring Boot 4.0.5, Java 21")
-      Container(kitchenDapr, "Dapr sidecar", "app-id: kitchen-service")
-    }
-    Deployment_Node(deliveryPod, "Pod: pizza-delivery-deployment") {
-      Container(deliveryApp, "pizza-delivery", "Spring Boot 4.0.5, Java 21")
-      Container(deliveryDapr, "Dapr sidecar", "app-id: delivery-service")
+    Deployment_Node(appPod, "Pod (x 3: pizza-store, pizza-kitchen, pizza-delivery)") {
+      Container(app, "Spring Boot service", "Spring Boot 4.0.5, Java 21 — three per-service replicas")
+      Container(sidecar, "Dapr sidecar", "Dapr 1.17.2 — injected per pod; app-ids match service names")
     }
 
     ContainerQueue(pubsub, "PubSub backend", "Kafka (prod) / Redis (e2e)")
@@ -33,14 +25,12 @@ Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
 }
 
 Rel(customer, lb, "HTTPS / WebSocket")
-Rel(lb, storeApp, "Routes to 8080")
+Rel(lb, app, "Routes to pizza-store:8080")
 
-Rel(storeDapr, kitchenDapr, "Service invocation", "mTLS HTTP/gRPC")
-Rel(storeDapr, deliveryDapr, "Service invocation", "mTLS HTTP/gRPC")
-Rel(storeDapr, state, "Persist orders")
-Rel(kitchenDapr, pubsub, "Publish events")
-Rel(deliveryDapr, pubsub, "Publish events")
-Rel(pubsub, storeDapr, "Deliver subscribed events")
+Rel(sidecar, sidecar, "Service invocation between sidecars", "mTLS HTTP/gRPC")
+Rel(sidecar, state, "Persist orders (pizza-store)")
+Rel(sidecar, pubsub, "Publish / subscribe events")
+Rel(sidecar, daprCtrl, "Placement lookup, cert rotation", "gRPC")
 
 SHOW_LEGEND()
 @enduml

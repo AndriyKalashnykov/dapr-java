@@ -82,7 +82,7 @@ The Pizza Store application simulates placing a Pizza Order that is processed by
 
 ### Container View
 
-<img src="docs/diagrams/out/c4-container.png" alt="C4 Container diagram" width="900">
+<img src="docs/diagrams/out/c4-container.png" alt="C4 Container diagram" width="800">
 
 - **pizza-store** — frontend + backend; places orders via the Dapr state API (`kvstore`), invokes `kitchen-service`/`delivery-service` via Dapr service invocation, subscribes to `pubsub/topic` CloudEvents on `POST /events`, and pushes live status to the browser via WebSocket `/topic/events`.
 - **pizza-kitchen** — receives `PUT /prepare` through its Dapr sidecar; simulates cooking and publishes `ORDER_IN_PREPARATION` then `ORDER_READY` to the shared `pubsub` component on topic `topic`.
@@ -128,9 +128,10 @@ sequenceDiagram
 
 ### Deployment
 
-<img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="900">
+<img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="800">
 
-- Each service runs as a single-replica `Deployment` in the `default` namespace with a Dapr sidecar injected via the `dapr.io/enabled` annotation and a matching `dapr.io/app-id`.
+- Three pods, one per service (`pizza-store`, `pizza-kitchen`, `pizza-delivery`), each running a single replica in the `default` namespace. The diagram collapses them to a single representative pod for legibility — in the cluster they're three separate `Deployment`s with matching `dapr.io/app-id` annotations (`pizza-store`, `kitchen-service`, `delivery-service`).
+- Each pod co-locates the Spring Boot app container with a Dapr sidecar injected via the `dapr.io/enabled` annotation.
 - `pizza-store` is exposed through a `Service` of type `LoadBalancer`. On KinD that IP is provisioned by [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) (host-side controller, no in-cluster MetalLB); in production the cloud LB controller fills the same role. Service port 80 bridges to container port 8080.
 - The Dapr control plane (`dapr-operator`, `placement`, `sentry`, `injector`) runs in the `dapr-system` namespace via the official Helm chart (1.17.4).
 - PubSub and State Store components resolve to Redis for e2e (`k8s/components-e2e.yaml`) and to Kafka + PostgreSQL in production.
