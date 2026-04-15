@@ -111,38 +111,34 @@ else
   fail "POST /order → response missing .id (body: $ORDER_RESP)"
 fi
 
-# 3. Full lifecycle — poll GET /order until status reaches the final terminal
-# state the pizza-store controller writes (`delivery`). The store flips the
-# persisted Order to Status.delivery when it receives ORDER_READY from the
-# kitchen (via pub/sub) and then invokes delivery-service; reaching that
-# state proves the cross-service fan-out store → kitchen → store → delivery
-# all worked. (The delivery-service does publish ORDER_COMPLETED events, but
-# pizza-store's /events handler does not translate them into a persisted
-# `completed` status — see prepareOrderForDelivery in PizzaStore.java. We
-# assert on what the app actually writes.)
+# 3. Full lifecycle — poll GET /order until status reaches the terminal
+# `completed` state. The store flips persisted Order to Status.delivery on
+# ORDER_READY (kitchen → store pub/sub) and to Status.completed on
+# ORDER_COMPLETED (delivery → store pub/sub), proving the full fan-out
+# store → kitchen → store → delivery → store all worked.
 # Kitchen takes 5s + random(0-15s) per pizza; delivery takes ~12s in 3s stages.
 # Budget 150s to absorb worst-case kitchen randomness + buffer.
 echo ""
 echo "=== Polling for order lifecycle (budget 150s) ==="
 DEADLINE=$(( $(date +%s) + 150 ))
 FINAL_STATUS=""
-SEEN_DELIVERY=0
+SEEN_COMPLETED=0
 while (( $(date +%s) < DEADLINE )); do
   ORDERS_JSON=$(curl -sf --max-time 10 "$BASE/order" 2>/dev/null || echo "")
   FINAL_STATUS=$(echo "$ORDERS_JSON" | jq -r --arg id "$ORDER_ID" \
     '.orders[]? | select(.id == $id) | .status' 2>/dev/null || true)
   echo "  …current status: ${FINAL_STATUS:-unknown}"
-  if [[ "$FINAL_STATUS" == "delivery" || "$FINAL_STATUS" == "completed" ]]; then
-    SEEN_DELIVERY=1
+  if [[ "$FINAL_STATUS" == "completed" ]]; then
+    SEEN_COMPLETED=1
     break
   fi
   sleep 3
 done
 
-if (( SEEN_DELIVERY == 1 )); then
-  pass "Cross-service fan-out: order $ORDER_ID reached '$FINAL_STATUS' (store → kitchen → store → delivery)"
+if (( SEEN_COMPLETED == 1 )); then
+  pass "Cross-service fan-out: order $ORDER_ID reached 'completed' (store → kitchen → store → delivery → store)"
 else
-  fail "Order $ORDER_ID did not reach the delivery stage (final='$FINAL_STATUS')"
+  fail "Order $ORDER_ID did not reach 'completed' (final='$FINAL_STATUS')"
 fi
 
 # 4. State store round-trip: GET /order after lifecycle must still have the order

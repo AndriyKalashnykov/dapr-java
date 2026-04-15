@@ -67,6 +67,9 @@ public class PizzaStore {
     Event pizzaEvent = event.getData();
     if (pizzaEvent.type.equals(EventType.ORDER_READY)) {
       prepareOrderForDelivery(pizzaEvent.order);
+    } else if (pizzaEvent.type.equals(EventType.ORDER_COMPLETED)) {
+      Order order = pizzaEvent.order;
+      store(new Order(order.id, order.customer, order.items, order.orderDate, Status.completed));
     }
   }
 
@@ -227,9 +230,11 @@ public class PizzaStore {
     try (DaprClient client = (new DaprClientBuilder()).build()) {
       Orders orders = new Orders(new ArrayList<Order>());
       State<Orders> ordersState = client.getState(stateStoreName, key, null, Orders.class).block();
-      if (ordersState.getValue() != null && ordersState.getValue().orders.isEmpty()) {
+      if (ordersState.getValue() != null && !ordersState.getValue().orders.isEmpty()) {
         orders.orders.addAll(ordersState.getValue().orders);
       }
+      // Upsert: replace any existing order with the same id (status transitions), else append.
+      orders.orders.removeIf(existing -> existing.id.equals(order.id));
       orders.orders.add(order);
       // Save state
       client.saveState(stateStoreName, key, orders).block();

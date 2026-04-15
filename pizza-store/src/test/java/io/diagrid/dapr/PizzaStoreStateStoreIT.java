@@ -110,26 +110,36 @@ public class PizzaStoreStateStoreIT {
   }
 
   @Test
-  public void persistsLatestSubmittedOrder() {
-    // Known limitation in PizzaStore#store: it only copies existing orders when the prior list
-    // is empty, so each new POST effectively overwrites the stored list. This test locks in the
-    // observable behavior (latest submission is retrievable by id + customer) rather than
-    // multi-order accumulation.
-    Order order =
+  public void persistsMultipleOrders() {
+    Order order1 =
         new Order(
             new Customer("dave", "dave@example.com"),
             Arrays.asList(new OrderItem(PizzaType.vegetarian, 3)));
+    Order order2 =
+        new Order(
+            new Customer("erin", "erin@example.com"),
+            Arrays.asList(new OrderItem(PizzaType.margherita, 2)));
 
-    String orderId =
+    String firstId =
         with()
-            .body(order)
+            .body(order1)
             .contentType(ContentType.JSON)
             .when()
             .request("POST", "/order")
             .then()
             .assertThat()
             .statusCode(200)
-            .body("id", notNullValue())
+            .extract()
+            .path("id");
+    String secondId =
+        with()
+            .body(order2)
+            .contentType(ContentType.JSON)
+            .when()
+            .request("POST", "/order")
+            .then()
+            .assertThat()
+            .statusCode(200)
             .extract()
             .path("id");
 
@@ -142,10 +152,9 @@ public class PizzaStoreStateStoreIT {
                     .then()
                     .assertThat()
                     .statusCode(200)
-                    .body("orders.id", hasItem(orderId))
+                    .body("orders.id", hasItem(firstId))
+                    .body("orders.id", hasItem(secondId))
                     .body("orders.customer.name", hasItem("dave"))
-                    .body("orders.customer.email", hasItem("dave@example.com"))
-                    .body("orders.items[0].type", hasItem("vegetarian"))
-                    .body("orders.items[0].amount", hasItem(3)));
+                    .body("orders.customer.name", hasItem("erin")));
   }
 }
