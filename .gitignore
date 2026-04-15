@@ -26,3 +26,6 @@ Thumbs.db
 # Environment / secrets
 .env
 .env.*
+
+# mermaid-lint scratch outputs
+docs/diagrams/out/.mermaid-lint-*.png

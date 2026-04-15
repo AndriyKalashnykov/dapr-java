@@ -27,6 +27,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.util.TestSocketUtils;
 
 @SpringBootTest(
     classes = PizzaKitchenAppTest.class,
@@ -34,10 +35,17 @@ import org.springframework.test.context.DynamicPropertySource;
 @ImportTestcontainers
 public class PizzaKitchenTest {
 
+  // Allocate a free port at class-load time so this test can run in parallel
+  // with other DEFINED_PORT tests (e.g. on the same host when act runs the
+  // `test` and `integration-test` workflow jobs concurrently). Both
+  // DaprContainer's app channel and Spring's embedded Tomcat bind to
+  // APP_PORT.
+  private static final int APP_PORT = TestSocketUtils.findAvailableTcpPort();
+
   static DaprContainer dapr =
       new DaprContainer(DaprContainer.getDefaultImageName())
           .withAppName("local-dapr-app")
-          .withAppPort(8080)
+          .withAppPort(APP_PORT)
           .withAppChannelAddress("host.testcontainers.internal")
           .withExtraHost("host.testcontainers.internal", "host-gateway")
           .withComponent(new Component("pubsub", "pubsub.in-memory", "v1", Collections.emptyMap()))
@@ -45,6 +53,7 @@ public class PizzaKitchenTest {
 
   @DynamicPropertySource
   static void daprProperties(DynamicPropertyRegistry registry) {
+    registry.add("server.port", () -> APP_PORT);
     registry.add("dapr.grpc.port", dapr::getGrpcPort);
     registry.add("dapr.http.port", dapr::getHttpPort);
   }
@@ -53,6 +62,7 @@ public class PizzaKitchenTest {
   void setSystemProperties() {
     System.setProperty("dapr.grpc.port", String.valueOf(dapr.getGrpcPort()));
     System.setProperty("dapr.http.port", String.valueOf(dapr.getHttpPort()));
+    io.restassured.RestAssured.port = APP_PORT;
   }
 
   @Autowired private SubscriptionsRestController subscriptionsRestController;

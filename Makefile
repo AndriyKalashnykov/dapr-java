@@ -320,18 +320,43 @@ run: build
 #ci: @ Run full CI pipeline (clean, static-check, test, integration-test, build, cve-check, coverage-check)
 ci: clean deps static-check test integration-test build cve-check coverage-check
 
-#ci-run: @ Run GitHub Actions workflow locally using act
+#ci-run: @ Run GitHub Actions workflow locally using act (jobs serialized)
 ci-run: deps-act
 	@# Prune stale containers first — Docker's overlayfs can hit a race
 	@# (moby/moby#49228) where a leftover container's RWLayer is nil,
 	@# producing exit 137 that looks like OOM but is a daemon bug.
 	@docker container prune -f 2>/dev/null || true
-	@# Random port + per-run tmpdir so concurrent `make ci-run` invocations
-	@# across different repos don't race on act's default 34567.
+	@# Jobs are invoked one at a time via `act --job`. On real GitHub runners
+	@# `test` and `integration-test` run in parallel (each on its own VM with
+	@# its own network), but under act both jobs share the host Docker daemon
+	@# and would collide on Testcontainers-Dapr's `DEFINED_PORT` (8080).
+	@# Serializing here keeps `ci-run` honest locally without slowing down
+	@# GitHub CI.
+	@#
+	@# Skipped jobs:
+	@#   - e2e:     requires Docker-in-Docker KinD + host-networked
+	@#              cloud-provider-kind; step-level `if: !env.ACT` no-ops
+	@#              the actual test run anyway. Verify via `make e2e`.
+	@#   - ci-pass: aggregator over e2e; only meaningful on real CI.
+	@#
+	@# Parallel `test` + `integration-test` (pulled in by cve-check's needs)
+	@# no longer collides on port 8080 because each DEFINED_PORT test
+	@# allocates an ephemeral port via TestSocketUtils at class-load time
+	@# (see PizzaKitchenTest / PizzaDeliveryTest).
+	@#
+	@# Random artifact-server port + per-run tmpdir so concurrent
+	@# `make ci-run` invocations across repos don't race on act's default.
 	@ACT_PORT=$$(shuf -i 40000-59999 -n 1); \
-	act push --container-architecture linux/amd64 \
-		--artifact-server-port "$$ACT_PORT" \
-		--artifact-server-path "$$(mktemp -d -t act-artifacts.XXXXXX)"
+	ARTIFACT_PATH=$$(mktemp -d -t act-artifacts.XXXXXX); \
+	for j in static-check build test integration-test cve-check; do \
+		echo ""; \
+		echo "============================================================"; \
+		echo "  act push --job $$j"; \
+		echo "============================================================"; \
+		act push --job $$j --container-architecture linux/amd64 \
+			--artifact-server-port "$$ACT_PORT" \
+			--artifact-server-path "$$ARTIFACT_PATH" || exit 1; \
+	done
 
 #cve-check: @ OWASP dependency vulnerability scan
 cve-check: deps-check
