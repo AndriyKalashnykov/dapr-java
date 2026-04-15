@@ -278,6 +278,7 @@ ci: clean deps static-check test integration-test build cve-check coverage-check
 
 #ci-run: @ Run GitHub Actions workflow locally using act
 ci-run: deps-act
+	@docker container prune -f 2>/dev/null || true
 	@act push --container-architecture linux/amd64 \
 		--artifact-server-path /tmp/act-artifacts
 

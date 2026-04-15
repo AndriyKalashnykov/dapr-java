@@ -226,9 +226,11 @@ jobs:
       run: make deps-maven
 
     - name: Install kind, kubectl, helm (pinned)
+      if: ${{ !env.ACT }}
       run: make deps-kind deps-kubectl deps-helm
 
     - name: Run end-to-end tests
+      if: ${{ !env.ACT }}
       run: make e2e
 
     - name: Collect diagnostics on failure
