@@ -2,19 +2,27 @@
 
 SHELL := /bin/bash
 
+# Ensure tools installed to ~/.local/bin (mise, act, etc.) AND mise shims
+# (java, mvn, node installed by `mise install`) are on PATH for every recipe.
+# The shims path lets us run `java` / `mvn` directly even when the user's
+# shell hasn't sourced `eval "$(mise activate ...)"`. Also needed inside the
+# act runner container where these paths are not preconfigured. Exported so
+# every sub-shell the recipes spawn inherits it.
+export PATH := $(HOME)/.local/share/mise/shims:$(HOME)/.local/bin:$(PATH)
+
 # === Configuration ===
 APP_NAME   := dapr-java
 CURRENTTAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
 # === Tool Versions (pinned) ===
-JAVA_VER    := 21-tem
+# Java and Maven pins live in .mise.toml; MAVEN_VER here only backs the
+# deps-maven fallback used inside act/CI containers that lack mise.
+# renovate: datasource=maven depName=org.apache.maven:apache-maven
 MAVEN_VER   := 3.9.14
+# renovate: datasource=github-releases depName=nektos/act
 ACT_VERSION := 0.2.87
-NVM_VERSION := 0.40.4
-NODE_VER    := 22
 
 # === Prerequisites ===
-SDKMAN   := $${SDKMAN_DIR:-$$HOME/.sdkman}/bin/sdkman-init.sh
 OPEN_CMD := $(if $(filter Darwin,$(shell uname -s)),open,xdg-open)
 
 #help: @ List available tasks on this project
@@ -25,32 +33,56 @@ help:
 	@echo
 	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-18s\033[0m - %s\n", $$1, $$2}'
 
-#deps: @ Install build dependencies via SDKMAN
+#deps: @ Install build dependencies via mise (reads .mise.toml)
 deps:
-	@command -v curl >/dev/null 2>&1 || { echo "curl is required but not installed."; exit 1; }
-	@command -v bash >/dev/null 2>&1 || { echo "bash is required but not installed."; exit 1; }
-	@if [ ! -f "$(SDKMAN)" ]; then \
-		echo "Installing SDKMAN..."; \
-		curl -s "https://get.sdkman.io?rcupdate=false" | bash; \
+	@command -v curl >/dev/null 2>&1 || { echo "Error: curl is required but not installed."; exit 1; }
+	@if ! command -v mise >/dev/null 2>&1; then \
+		echo "Error: mise is not installed."; \
+		echo "Install it with:  curl https://mise.run | sh"; \
+		echo "Then activate it: echo 'eval \"\$$(~/.local/bin/mise activate bash)\"' >> ~/.bashrc"; \
+		echo "                  echo 'eval \"\$$(~/.local/bin/mise activate zsh)\"'  >> ~/.zshrc"; \
+		exit 1; \
 	fi
-	@. $(SDKMAN) && echo N | sdk install java $(JAVA_VER) && sdk use java $(JAVA_VER)
-	@. $(SDKMAN) && echo N | sdk install maven $(MAVEN_VER) && sdk use maven $(MAVEN_VER)
+	@mise install
+	@mise exec -- java -version >/dev/null 2>&1 || { echo "Error: java not available after 'mise install'."; exit 1; }
+	@mise exec -- mvn --version  >/dev/null 2>&1 || { echo "Error: mvn not available after 'mise install'."; exit 1; }
+	@echo "Tools installed via mise. If this is a fresh install, activate mise in your shell:"
+	@echo "  bash: echo 'eval \"\$$(~/.local/bin/mise activate bash)\"' >> ~/.bashrc"
+	@echo "  zsh:  echo 'eval \"\$$(~/.local/bin/mise activate zsh)\"'  >> ~/.zshrc"
 
 #deps-check: @ Verify build dependencies are installed
 deps-check:
-	@command -v java >/dev/null 2>&1 || { echo "java is required but not installed."; exit 1; }
-	@command -v mvn >/dev/null 2>&1 || { echo "mvn is required but not installed."; exit 1; }
+	@command -v java >/dev/null 2>&1 || { echo "Error: java is required but not installed. Run: make deps"; exit 1; }
+	@command -v mvn  >/dev/null 2>&1 || { echo "Error: mvn is required but not installed. Run: make deps";  exit 1; }
+
+#deps-maven: @ Install Maven from Apache archives (for CI containers without mise)
+deps-maven:
+	@command -v mvn >/dev/null 2>&1 || { \
+		echo "Installing Maven $(MAVEN_VER) from Apache archives..."; \
+		mkdir -p $(HOME)/.local; \
+		curl -fsSL "https://archive.apache.org/dist/maven/maven-3/$(MAVEN_VER)/binaries/apache-maven-$(MAVEN_VER)-bin.tar.gz" | tar xz -C $(HOME)/.local; \
+		mkdir -p $(HOME)/.local/bin; \
+		ln -sf "$(HOME)/.local/apache-maven-$(MAVEN_VER)/bin/mvn" "$(HOME)/.local/bin/mvn"; \
+	}
 
 #deps-act: @ Install act for local CI testing
-deps-act: deps-check
+deps-act:
 	@command -v act >/dev/null 2>&1 || { echo "Installing act $(ACT_VERSION)..."; \
-		curl -sSfL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash -s -- -b /usr/local/bin v$(ACT_VERSION); \
+		mkdir -p $(HOME)/.local/bin; \
+		curl -sSfL https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b $(HOME)/.local/bin v$(ACT_VERSION); \
 	}
 
 #env-check: @ Check installed tools and versions
 env-check: deps-check
 	@echo "java: $$(java -version 2>&1 | head -1)"
 	@echo "mvn:  $$(mvn -version 2>&1 | head -1)"
+	@if command -v mise >/dev/null 2>&1; then \
+		echo "mise: $$(mise --version)"; \
+		echo "--- mise tools ---"; \
+		mise list || true; \
+	else \
+		echo "mise: not installed"; \
+	fi
 	@echo "tag:  $(CURRENTTAG)"
 
 #clean: @ Remove build artifacts
@@ -109,19 +141,18 @@ print-deps-updates: deps-check
 update-deps: print-deps-updates
 	@mvn -B versions:use-latest-releases versions:commit
 
-#renovate-bootstrap: @ Install nvm and npm for Renovate
-renovate-bootstrap:
-	@command -v node >/dev/null 2>&1 || { \
-		echo "Installing nvm $(NVM_VERSION)..."; \
-		curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
-		export NVM_DIR="$$HOME/.nvm"; \
-		[ -s "$$NVM_DIR/nvm.sh" ] && . "$$NVM_DIR/nvm.sh"; \
-		nvm install $(NODE_VER); \
-	}
-
 #renovate-validate: @ Validate Renovate configuration
-renovate-validate: renovate-bootstrap
-	@npx --yes renovate --platform=local
+renovate-validate:
+	@if ! command -v node >/dev/null 2>&1; then \
+		if command -v mise >/dev/null 2>&1; then \
+			mise exec -- npx --yes renovate --platform=local; \
+		else \
+			echo "Error: node is required. Run 'make deps' to install via mise."; \
+			exit 1; \
+		fi; \
+	else \
+		npx --yes renovate --platform=local; \
+	fi
 
 #release: @ Create a release tag with semver validation (usage: make release VERSION=x.y.z)
 release:
@@ -137,6 +168,6 @@ release:
 	@git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
 	@echo "Release tag v$(VERSION) created. Push with: git push origin v$(VERSION)"
 
-.PHONY: help deps deps-check deps-act env-check clean build test lint run \
+.PHONY: help deps deps-check deps-maven deps-act env-check clean build test lint run \
 	ci ci-run cve-check coverage-generate coverage-check coverage-open \
-	print-deps-updates update-deps renovate-bootstrap renovate-validate release
+	print-deps-updates update-deps renovate-validate release

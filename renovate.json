@@ -4,6 +4,7 @@
     "config:best-practices",
     ":semanticCommitType(chore)"
   ],
+  "commitMessageAction": "update",
   "enabledManagers": [
     "maven",
     "github-actions",
@@ -12,25 +13,14 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Track act version in Makefile",
-      "managerFilePatterns": ["/^Makefile$/"],
-      "matchStrings": [
-        "ACT_VERSION\\s*:=\\s*(?<currentValue>.*?)\\n"
+      "description": "Update Makefile/.mise.toml tool versions via inline renovate comments",
+      "managerFilePatterns": [
+        "/(^|/)Makefile$/",
+        "/(^|/)\\.mise\\.toml$/"
       ],
-      "depNameTemplate": "nektos/act",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "description": "Track nvm version in Makefile",
-      "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": [
-        "NVM_VERSION\\s*:=\\s*(?<currentValue>.*?)\\n"
-      ],
-      "depNameTemplate": "nvm-sh/nvm",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.*)$"
+        "# renovate: datasource=(?<datasource>[a-z-]+?)(?: depName=(?<depName>[^\\s]+?))?(?: packageName=(?<packageName>[^\\s]+?))?(?: versioning=(?<versioning>[a-z-]+?))?\\s+\\S+?\\s*[:=]?\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+      ]
     }
   ],
   "commitMessagePrefix": "chore(all): ",
@@ -105,13 +95,6 @@
       "groupName": "GitHub Actions",
       "matchManagers": [
         "github-actions"
-      ]
-    },
-    {
-      "description": "Group Makefile tool versions into one PR",
-      "groupName": "Makefile tools",
-      "matchManagers": [
-        "custom.regex"
       ]
     }
   ]
