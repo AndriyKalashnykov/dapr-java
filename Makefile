@@ -37,7 +37,7 @@ METALLB_VERSION := 0.15.3
 # iptables interaction). Bump to v1.35.x once MetalLB releases a fix.
 KIND_NODE_IMAGE := kindest/node:v1.34.3@sha256:08497ee19eace7b4b5348db5c6a1591d7752b164530a36f855cb0f2bdcbadd48
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
-DAPR_HELM_VERSION := 1.17.1
+DAPR_HELM_VERSION := 1.17.4
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
 KUBECTL_VERSION := 1.35.3
 # renovate: datasource=github-releases depName=helm/helm

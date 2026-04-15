@@ -24,8 +24,8 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-boot.version>4.0.5</spring-boot.version>
-        <dapr.version>1.17.1</dapr.version>
-        <opentelemetry.version>1.60.1</opentelemetry.version>
+        <dapr.version>1.17.2</dapr.version>
+        <opentelemetry.version>1.61.0</opentelemetry.version>
         <opentelemetry-instrumentation.version>2.26.1-alpha</opentelemetry-instrumentation.version>
         <rest-assured.version>6.0.0</rest-assured.version>
         <hamcrest.version>3.0</hamcrest.version>
@@ -35,8 +35,8 @@
         <grpc.version>1.80.0</grpc.version>
         <protobuf-java.version>4.34.1</protobuf-java.version>
         <tomcat.version>11.0.21</tomcat.version>
-        <jackson.version>3.1.1</jackson.version>
-        <jackson-bom.version>3.1.1</jackson-bom.version>
+        <jackson.version>3.1.2</jackson.version>
+        <jackson-bom.version>3.1.2</jackson-bom.version>
     </properties>
 
     <dependencyManagement>
