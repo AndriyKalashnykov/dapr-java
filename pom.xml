@@ -121,6 +121,7 @@
                     <configuration>
                         <source>${java.version}</source>
                         <target>${java.version}</target>
+                        <failOnWarning>true</failOnWarning>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -139,7 +140,7 @@
                             <rule>
                                 <limits>
                                     <limit>
-                                        <minimum>0.70</minimum>
+                                        <minimum>0.80</minimum>
                                     </limit>
                                 </limits>
                             </rule>
@@ -181,4 +182,31 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>integration-test</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <includes>
+                                <include>**/*IT.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
