@@ -317,8 +317,8 @@ static-check: format-check lint trivy-fs trivy-config secrets diagrams-check mer
 run: build
 	@mvn -B spring-boot:run -Ddependency-check.skip=true
 
-#ci: @ Run full CI pipeline (clean, static-check, test, integration-test, build, cve-check, coverage-check)
-ci: clean deps static-check test integration-test build cve-check coverage-check
+#ci: @ Run local CI pipeline (clean, static-check, test, integration-test, build, coverage-check). cve-check is separate — run `make cve-check` explicitly.
+ci: clean deps static-check test integration-test build coverage-check
 
 #ci-run: @ Run GitHub Actions workflow locally using act (jobs serialized)
 ci-run: deps-act

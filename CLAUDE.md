@@ -37,7 +37,7 @@ make coverage-open                      # Open code coverage report
 make print-deps-updates                 # Print project dependencies updates
 make update-deps                        # Update project dependencies to latest releases
 make renovate-validate                  # Validate Renovate configuration
-make release VERSION=x.y.z              # Create a semver release tag
+make release VERSION=x.y.z              # Create a semver release tag (run `make cve-check` first)
 ```
 
 ### Test pyramid
@@ -114,7 +114,7 @@ Last reviewed: 2026-04-15
 - [x] **Static-check composite quality gate** — `format-check` + `lint` + `trivy-fs` + `trivy-config` + `secrets` wired into `make ci` (2026-04-15)
 - [x] **CVE overrides** — pinned Tomcat 11.0.21, Jackson 3.1.2, gRPC 1.80.0 in `dependencyManagement` to address advisories (2026-04-15)
 - [x] **K8s security hardening** — `runAsNonRoot`, `readOnlyRootFilesystem`, dropped capabilities, tmpfs for writable paths in all three Deployments (both `k8s/` and `k8s-dapr-shared/`) (2026-04-15)
-- [x] **`cve-check` wired into CI** — runs on push to `main` and tag pushes, with NVD cache and HTML report upload (2026-04-15)
+- [x] **`cve-check` wired into CI** — runs on tag pushes, weekly schedule (Mon 06:00 UTC), and `workflow_dispatch`. Omitted from `make ci` and `make ci-run` — run `make cve-check` manually before pushing a release tag. NVD cache + HTML report upload intact. (2026-04-15)
 - [x] **`MAVEN_VERSION` Renovate tracking** — covered by the generic `# renovate:` customManagers regex (2026-04-15)
 - [ ] **Maven 4.0 migration** — plan when Maven 4.0 reaches GA (currently RC-5)
 - [ ] **Spring Boot 4.0 EOL (2026-12-31)** — monitor 4.1 release schedule, plan upgrade before Dec 2026
