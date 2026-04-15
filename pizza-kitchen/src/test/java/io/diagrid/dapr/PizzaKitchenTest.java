@@ -1,6 +1,7 @@
 package io.diagrid.dapr;
 
 import static io.restassured.RestAssured.*;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.dapr.client.domain.CloudEvent;
@@ -13,6 +14,7 @@ import io.diagrid.dapr.PizzaKitchen.Order;
 import io.diagrid.dapr.PizzaKitchen.OrderItem;
 import io.diagrid.dapr.PizzaKitchen.PizzaType;
 import io.restassured.http.ContentType;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
@@ -57,12 +59,12 @@ public class PizzaKitchenTest {
 
   @Test
   public void testPrepareOrderRequest() throws Exception {
+    String orderId = UUID.randomUUID().toString();
+    Order order =
+        new Order(orderId, Arrays.asList(new OrderItem(PizzaType.pepperoni, 1)), new Date());
+
     with()
-        .body(
-            new Order(
-                UUID.randomUUID().toString(),
-                Arrays.asList(new OrderItem(PizzaType.pepperoni, 1)),
-                new Date()))
+        .body(order)
         .contentType(ContentType.JSON)
         .when()
         .request("PUT", "/prepare")
@@ -70,18 +72,35 @@ public class PizzaKitchenTest {
         .assertThat()
         .statusCode(200);
 
-    // Wait for events: 5s initial delay + up to 15s random prep + delivery margin
-    Thread.sleep(25000);
+    // Wait for events: 5s initial delay + up to 15s random prep + margin.
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .pollInterval(Duration.ofMillis(500))
+        .untilAsserted(() -> assertEquals(2, subscriptionsRestController.getAllEvents().size()));
 
     List<CloudEvent<Event>> events = subscriptionsRestController.getAllEvents();
-    assertEquals(2, events.size(), "Two published event are expected");
+    assertEquals(2, events.size(), "Two published events are expected");
+
+    CloudEvent<Event> inPreparation = events.get(0);
     assertEquals(
         EventType.ORDER_IN_PREPARATION,
-        events.get(0).getData().type(),
-        "The content of the cloud event should be the in preparation event");
+        inPreparation.getData().type(),
+        "First event should be ORDER_IN_PREPARATION");
     assertEquals(
-        EventType.ORDER_READY,
-        events.get(1).getData().type(),
-        "The content of the cloud event should be the ready event");
+        orderId,
+        inPreparation.getData().order().id(),
+        "Event payload should preserve the submitted order id");
+    assertEquals(
+        "kitchen",
+        inPreparation.getData().service(),
+        "Event should be attributed to the kitchen service");
+
+    CloudEvent<Event> ready = events.get(1);
+    assertEquals(
+        EventType.ORDER_READY, ready.getData().type(), "Second event should be ORDER_READY");
+    assertEquals(
+        orderId,
+        ready.getData().order().id(),
+        "Ready event payload should preserve the submitted order id");
   }
 }

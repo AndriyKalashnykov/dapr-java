@@ -1,6 +1,7 @@
 package io.diagrid.dapr;
 
 import static io.restassured.RestAssured.*;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.dapr.client.domain.CloudEvent;
@@ -13,6 +14,7 @@ import io.diagrid.dapr.PizzaDelivery.Order;
 import io.diagrid.dapr.PizzaDelivery.OrderItem;
 import io.diagrid.dapr.PizzaDelivery.PizzaType;
 import io.restassured.http.ContentType;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
@@ -57,12 +59,12 @@ public class PizzaDeliveryTest {
 
   @Test
   public void testDelivery() throws Exception {
+    String orderId = UUID.randomUUID().toString();
+    Order order =
+        new Order(orderId, Arrays.asList(new OrderItem(PizzaType.pepperoni, 1)), new Date());
+
     with()
-        .body(
-            new Order(
-                UUID.randomUUID().toString(),
-                Arrays.asList(new OrderItem(PizzaType.pepperoni, 1)),
-                new Date()))
+        .body(order)
         .contentType(ContentType.JSON)
         .when()
         .request("PUT", "/deliver")
@@ -70,26 +72,43 @@ public class PizzaDeliveryTest {
         .assertThat()
         .statusCode(200);
 
-    // Wait for the event to arrive
-    Thread.sleep(10000);
+    // Wait for 4 events (3 stages of 3s delay + margin).
+    await()
+        .atMost(Duration.ofSeconds(20))
+        .pollInterval(Duration.ofMillis(500))
+        .untilAsserted(() -> assertEquals(4, subscriptionsRestController.getAllEvents().size()));
 
     List<CloudEvent<Event>> events = subscriptionsRestController.getAllEvents();
-    assertEquals(4, events.size(), "Four published event are expected");
-    assertEquals(
-        EventType.ORDER_ON_ITS_WAY,
-        events.get(0).getData().type(),
-        "The content of the cloud event should be the order-out-on-its-way event");
-    assertEquals(
-        EventType.ORDER_ON_ITS_WAY,
-        events.get(1).getData().type(),
-        "The content of the cloud event should be the order-out-on-its-way event");
-    assertEquals(
-        EventType.ORDER_ON_ITS_WAY,
-        events.get(2).getData().type(),
-        "The content of the cloud event should be the order-out-on-its-way event");
+    assertEquals(4, events.size(), "Four published events are expected");
+
+    for (int i = 0; i < 3; i++) {
+      CloudEvent<Event> stage = events.get(i);
+      assertEquals(
+          EventType.ORDER_ON_ITS_WAY,
+          stage.getData().type(),
+          "Event " + i + " should be ORDER_ON_ITS_WAY");
+      assertEquals(
+          orderId,
+          stage.getData().order().id(),
+          "Event " + i + " payload should preserve the submitted order id");
+      assertEquals(
+          "delivery",
+          stage.getData().service(),
+          "Event " + i + " should be attributed to the delivery service");
+    }
+
+    CloudEvent<Event> completed = events.get(3);
     assertEquals(
         EventType.ORDER_COMPLETED,
-        events.get(3).getData().type(),
-        "The content of the cloud event should be the order-completed event");
+        completed.getData().type(),
+        "Fourth event should be ORDER_COMPLETED");
+    assertEquals(
+        orderId,
+        completed.getData().order().id(),
+        "Completed event payload should preserve the submitted order id");
+    assertEquals(
+        "delivery",
+        completed.getData().service(),
+        "Completed event should be attributed to the delivery service");
   }
 }
