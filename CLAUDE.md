@@ -6,27 +6,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 make help                               # List available tasks on this project
-make deps                               # Install build dependencies via SDKMAN
+make deps                               # Install build dependencies via mise (reads .mise.toml)
 make deps-check                         # Verify build dependencies are installed
+make deps-maven                         # Install Maven from Apache archives (CI fallback)
 make deps-act                           # Install act for local CI testing
+make deps-trivy                         # Install Trivy for security scanning
+make deps-gitleaks                      # Install gitleaks for secret scanning
+make deps-gjf                           # Download google-java-format jar
 make env-check                          # Show installed tool versions
-make build                              # Build project
-make test                               # Run project tests
-make lint                               # Run static analysis checks
+make build                              # Build project (skips tests)
+make test                               # Run unit tests (Surefire, **/*Test.java)
+make integration-test                   # Run integration tests (Failsafe, **/*IT.java)
+make lint                               # Run Checkstyle static analysis
+make format                             # Auto-format Java source (google-java-format)
+make format-check                       # Verify formatting without modifying files
+make trivy-fs                           # Scan filesystem for HIGH/CRITICAL vulns, secrets, misconfigs
+make trivy-config                       # Scan k8s/ and k8s-dapr-shared/ for KSV findings
+make secrets                            # Scan for leaked secrets (gitleaks)
+make deps-prune                         # Analyze Maven dependencies (advisory)
+make deps-prune-check                   # Fail if unused declared Maven dependencies exist
+make static-check                       # Composite: format-check + lint + trivy-fs + trivy-config + secrets
 make clean                              # Remove build artifacts
 make run                                # Run the application
-make ci                                 # Run full CI pipeline (clean, lint, build, test, coverage)
+make ci                                 # Full CI: clean, deps, static-check, test, integration-test, build, cve-check, coverage-check
 make ci-run                             # Run GitHub Actions workflow locally using act
 make cve-check                          # OWASP dependency vulnerability scan
 make coverage-generate                  # Generate code coverage report
-make coverage-check                     # Verify code coverage meets minimum threshold (>70 %)
+make coverage-check                     # Verify code coverage meets minimum threshold (78%)
 make coverage-open                      # Open code coverage report
 make print-deps-updates                 # Print project dependencies updates
 make update-deps                        # Update project dependencies to latest releases
-make renovate-bootstrap                 # Install nvm and npm for Renovate
 make renovate-validate                  # Validate Renovate configuration
-make release VERSION=x.y.z             # Create a semver release tag
+make release VERSION=x.y.z              # Create a semver release tag
 ```
+
+### Test pyramid
+
+| Layer | Command | Scope | Runtime |
+|-------|---------|-------|---------|
+| Unit | `make test` | `**/*Test.java` via Surefire, in-memory PubSub Dapr sidecars | Seconds |
+| Integration | `make integration-test` | `**/*IT.java` via Failsafe, real deps via Testcontainers (no tests exist yet) | Tens of seconds |
+| E2E | _not implemented_ | KinD/Docker-Compose end-to-end assertions — follow-up | Minutes |
 
 ### Single module commands
 
@@ -87,14 +107,24 @@ Managed centrally in the parent `pom.xml` `<properties>` block. The Dapr SDK ver
 
 ## Upgrade Backlog
 
-Last reviewed: 2026-04-03
+Last reviewed: 2026-04-15
 
-- [x] **Maven 3.9 EOL (2026-03-12)** — updated `MAVEN_VER` to 3.9.14 (2026-04-03)
+- [x] **Maven 3.9 EOL (2026-03-12)** — updated `MAVEN_VERSION` to 3.9.14 (2026-04-03)
+- [x] **mise migration** — replaced SDKMAN + nvm with mise via `.mise.toml` and `.java-version` (2026-04-15)
+- [x] **Static-check composite quality gate** — `format-check` + `lint` + `trivy-fs` + `trivy-config` + `secrets` wired into `make ci` (2026-04-15)
+- [x] **CVE overrides** — pinned Tomcat 11.0.21, Jackson 3.1.1, gRPC 1.80.0 in `dependencyManagement` to address advisories (2026-04-15)
+- [x] **K8s security hardening** — `runAsNonRoot`, `readOnlyRootFilesystem`, dropped capabilities, tmpfs for writable paths in all three Deployments (both `k8s/` and `k8s-dapr-shared/`) (2026-04-15)
+- [x] **`cve-check` wired into CI** — runs on push to `main` and tag pushes, with NVD cache and HTML report upload (2026-04-15)
+- [x] **`MAVEN_VERSION` Renovate tracking** — covered by the generic `# renovate:` customManagers regex (2026-04-15)
 - [ ] **Maven 4.0 migration** — plan when Maven 4.0 reaches GA (currently RC-5)
 - [ ] **Spring Boot 4.0 EOL (2026-12-31)** — monitor 4.1 release schedule, plan upgrade before Dec 2026
-- [ ] **`MAVEN_VER` not tracked by Renovate** — add customManagers regex entry or track manually
 - [ ] **Alpha dependencies** — `opentelemetry-instrumentation-bom-alpha`, `wiremock-testcontainers` 1.0-alpha-15. Track GA releases.
-- [x] **K8s security hardening** — added securityContext to all deployments (2026-04-03)
+- [ ] **Raise JaCoCo threshold 0.78 → 0.80** — pizza-store currently at 0.79; follow-up `/test-coverage-analysis`
+- [ ] **Add integration tests (`**/*IT.java`)** — Failsafe wiring is in place but no `*IT.java` exists yet; follow-up `/test-coverage-analysis`
+- [ ] **Add `make e2e` target + KinD/MetalLB** — end-to-end verification on a real Kubernetes stack; follow-up `/test-coverage-analysis`
+- [ ] **Replace hand-drawn architecture PNGs with C4-PlantUML** — `architecture.png`, `architecture+infra.png`, `architecture+dapr.png` lack source; the `+` in filenames also complicates URL-encoding. Follow-up `/architecture-diagrams`.
+- [ ] **Add C4 Context hero diagram to README** — deferred until PlantUML toolchain and `make diagrams-check` lint are introduced (mermaid-lint not wired today). Follow-up `/architecture-diagrams`.
+- [ ] **Verify Dapr Helm chart bump** — README now references chart 1.17.1 to match SDK; confirm against upstream release index on next upgrade cycle.
 
 ## Skills
 
@@ -105,7 +135,7 @@ Use the following skills when working on related files:
 | `Makefile` | `/makefile` |
 | `renovate.json` | `/renovate` |
 | `README.md` | `/readme` |
-| `.github/workflows/*.yml` | `/ci-workflow` |
+| `.github/workflows/*.{yml,yaml}` | `/ci-workflow` |
 | `CLAUDE.md` | `/claude` |
 
 When spawning subagents, always pass conventions from the respective skill into the agent's prompt.
