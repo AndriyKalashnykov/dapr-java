@@ -34,6 +34,12 @@ on:
       - '**.gif'
       - '**.svg'
   workflow_call:
+  # Weekly OWASP/NVD scan so new upstream advisories are caught even without
+  # a code push. Monday 06:00 UTC keeps the cve-check job off the critical
+  # path during weekday work hours.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -173,14 +179,17 @@ jobs:
 
   cve-check:
     needs: [build, test, integration-test]
-    # Run on push to main AND on tag pushes (so a future release-time docker
-    # job can gate on it). Skipped under act because the OWASP NVD download
-    # is slow and unreliable in local containers.
+    # Gated to cut CI cost on every main push. Runs on:
+    #   - tag pushes (release-time gate before shipping)
+    #   - weekly schedule (catches new upstream CVEs in unchanged deps)
+    #   - workflow_dispatch (ad-hoc rescan)
+    # Skipped under act because the OWASP NVD download is slow and
+    # unreliable in local containers; the step-level `if: !env.ACT` below
+    # no-ops the actual scan.
     if: |
-      github.event_name == 'push' && (
-        github.ref == 'refs/heads/main' ||
-        startsWith(github.ref, 'refs/tags/')
-      )
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 

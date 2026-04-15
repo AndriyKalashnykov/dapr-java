@@ -334,21 +334,21 @@ ci-run: deps-act
 	@# GitHub CI.
 	@#
 	@# Skipped jobs:
-	@#   - e2e:     requires Docker-in-Docker KinD + host-networked
-	@#              cloud-provider-kind; step-level `if: !env.ACT` no-ops
-	@#              the actual test run anyway. Verify via `make e2e`.
-	@#   - ci-pass: aggregator over e2e; only meaningful on real CI.
-	@#
-	@# Parallel `test` + `integration-test` (pulled in by cve-check's needs)
-	@# no longer collides on port 8080 because each DEFINED_PORT test
-	@# allocates an ephemeral port via TestSocketUtils at class-load time
-	@# (see PizzaKitchenTest / PizzaDeliveryTest).
+	@#   - e2e:       requires Docker-in-Docker KinD + host-networked
+	@#                cloud-provider-kind; step-level `if: !env.ACT` no-ops
+	@#                the actual test run anyway. Verify via `make e2e`.
+	@#   - cve-check: the actual OWASP scan is step-level `if: !env.ACT` so
+	@#                the iteration would only spin up the runner container,
+	@#                skip the scan, and tear down — pure overhead (+60-90s
+	@#                and exposure to Docker Hub registry flakes). Verify
+	@#                via `make cve-check`.
+	@#   - ci-pass:   aggregator over e2e; only meaningful on real CI.
 	@#
 	@# Random artifact-server port + per-run tmpdir so concurrent
 	@# `make ci-run` invocations across repos don't race on act's default.
 	@ACT_PORT=$$(shuf -i 40000-59999 -n 1); \
 	ARTIFACT_PATH=$$(mktemp -d -t act-artifacts.XXXXXX); \
-	for j in static-check build test integration-test cve-check; do \
+	for j in static-check build test integration-test; do \
 		echo ""; \
 		echo "============================================================"; \
 		echo "  act push --job $$j"; \
