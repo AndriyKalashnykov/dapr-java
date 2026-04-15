@@ -8,7 +8,7 @@ Person(customer, "Customer")
 
 Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
   Deployment_Node(ns, "Namespace: default") {
-    Container(lb, "Service: pizza-store", "LoadBalancer 80 -> 8080 (MetalLB)")
+    Container(lb, "Service: pizza-store", "LoadBalancer 80 -> 8080 (cloud-provider-kind / cloud LB)")
 
     Deployment_Node(storePod, "Pod: pizza-store-deployment") {
       Container(storeApp, "pizza-store", "Spring Boot 4.0.5, Java 21")
