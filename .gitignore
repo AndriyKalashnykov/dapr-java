@@ -11,6 +11,7 @@ target/
 
 # IDE
 .idea/
+.vscode/
 *.iml
 *.swp
 *~
