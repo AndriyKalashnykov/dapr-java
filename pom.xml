@@ -284,6 +284,8 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-failsafe-plugin</artifactId>
+                        <!-- Pinned explicitly; Spring Boot BOM does not manage the plugin. -->
+                        <version>3.5.5</version>
                         <executions>
                             <execution>
                                 <goals>
