@@ -278,9 +278,16 @@ ci: clean deps static-check test integration-test build cve-check coverage-check
 
 #ci-run: @ Run GitHub Actions workflow locally using act
 ci-run: deps-act
+	@# Prune stale containers first — Docker's overlayfs can hit a race
+	@# (moby/moby#49228) where a leftover container's RWLayer is nil,
+	@# producing exit 137 that looks like OOM but is a daemon bug.
 	@docker container prune -f 2>/dev/null || true
-	@act push --container-architecture linux/amd64 \
-		--artifact-server-path /tmp/act-artifacts
+	@# Random port + per-run tmpdir so concurrent `make ci-run` invocations
+	@# across different repos don't race on act's default 34567.
+	@ACT_PORT=$$(shuf -i 40000-59999 -n 1); \
+	act push --container-architecture linux/amd64 \
+		--artifact-server-port "$$ACT_PORT" \
+		--artifact-server-path "$$(mktemp -d -t act-artifacts.XXXXXX)"
 
 #cve-check: @ OWASP dependency vulnerability scan
 cve-check: deps-check
