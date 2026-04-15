@@ -197,6 +197,9 @@ jobs:
         name: cve-report
         path: '**/target/dependency-check-report.html'
         retention-days: 14
+        # Suppress ::warning when the scan fails before producing an HTML
+        # report (see the NVD deserializer bug noted on the run step above).
+        if-no-files-found: ignore
 
   # MANDATORY end-to-end test job. Deploys the three services plus Dapr to
   # a KinD cluster (MetalLB + in-memory pubsub/state store) and runs
