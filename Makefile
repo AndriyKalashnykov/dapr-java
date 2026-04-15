@@ -11,7 +11,7 @@ SHELL := /bin/bash
 export PATH := $(HOME)/.local/share/mise/shims:$(HOME)/.local/bin:$(PATH)
 
 # === Configuration ===
-APP_NAME   := dapr-java
+APP_NAME   ?= $(notdir $(CURDIR))
 CURRENTTAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
 # === Tool Versions (pinned) ===
@@ -50,7 +50,7 @@ DIAGRAM_SRC := $(wildcard $(DIAGRAM_DIR)/*.puml)
 DIAGRAM_OUT := $(patsubst $(DIAGRAM_DIR)/%.puml,$(DIAGRAM_DIR)/out/%.png,$(DIAGRAM_SRC))
 
 # === KinD cluster ===
-KIND_CLUSTER_NAME := dapr-java
+KIND_CLUSTER_NAME := $(APP_NAME)
 KIND_CONTEXT := kind-$(KIND_CLUSTER_NAME)
 KUBECTL_BIN := $(HOME)/.local/bin/kubectl
 HELM_BIN := $(HOME)/.local/bin/helm
