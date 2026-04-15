@@ -107,7 +107,36 @@ jobs:
           pizza-store/target/*.jar
         retention-days: 1
 
+  # Unit tests only — fast feedback loop. Runs surefire (no Testcontainers
+  # heavy lifting, no Dapr sidecars). Integration tests live in their own job.
   test:
+    needs: [static-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+    - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+      with:
+        java-version-file: '.java-version'
+        distribution: 'temurin'
+        cache: 'maven'
+
+    - name: Ensure Maven is installed
+      run: make deps-maven
+
+    - name: Test
+      run: make test
+
+  # Integration tests via Failsafe + Testcontainers-Dapr. Runs in its own
+  # runner to avoid resource contention with the unit-test job (Dapr sidecars
+  # are memory-hungry and occasionally race their wait strategies under load).
+  # Also produces the merged unit+IT JaCoCo coverage report and gates on the
+  # 0.80 portfolio threshold.
+  integration-test:
     needs: [static-check]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -126,7 +155,7 @@ jobs:
     - name: Ensure Maven is installed
       run: make deps-maven
 
-    - name: Test with coverage
+    - name: Integration test with coverage
       run: make coverage-generate
 
     - name: Verify coverage threshold
@@ -143,7 +172,7 @@ jobs:
         retention-days: 14
 
   cve-check:
-    needs: [build, test]
+    needs: [build, test, integration-test]
     # Run on push to main AND on tag pushes (so a future release-time docker
     # job can gate on it). Skipped under act because the OWASP NVD download
     # is slow and unreliable in local containers.
@@ -214,7 +243,7 @@ jobs:
   # we keep it off every PR by default and rely on static-check/build/test
   # to catch most bugs early.
   e2e:
-    needs: [build, test]
+    needs: [build, test, integration-test]
     if: |
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) ||
       (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-e2e')) ||
@@ -262,7 +291,7 @@ jobs:
 
   ci-pass:
     if: always()
-    needs: [static-check, build, test, cve-check, e2e]
+    needs: [static-check, build, test, integration-test, cve-check, e2e]
     timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:

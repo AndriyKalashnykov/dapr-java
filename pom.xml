@@ -298,6 +298,20 @@
                             <includes>
                                 <include>**/*IT.java</include>
                             </includes>
+                            <!-- Fork a fresh JVM per IT class so Dapr sidecar + WireMock
+                                 containers from one IT don't leak state into the next.
+                                 Slightly slower than reuseForks=true but eliminates a
+                                 class of flaky ApplicationContext load failures under
+                                 CI resource contention. -->
+                            <forkCount>1</forkCount>
+                            <reuseForks>false</reuseForks>
+                            <trimStackTrace>false</trimStackTrace>
+                            <forkedProcessTimeoutInSeconds>300</forkedProcessTimeoutInSeconds>
+                            <systemPropertyVariables>
+                                <!-- Give Testcontainers more time to start the Dapr sidecar
+                                     on slow CI runners. Default is 60s. -->
+                                <testcontainers.reuse.enable>false</testcontainers.reuse.enable>
+                            </systemPropertyVariables>
                         </configuration>
                     </plugin>
                 </plugins>
