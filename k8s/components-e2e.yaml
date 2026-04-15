@@ -1,0 +1,37 @@
+---
+# Redis-backed Dapr components used by the `make e2e` KinD stack. A single
+# Redis pod (k8s/redis-e2e.yaml) is deployed in the same namespace to back
+# both the pubsub and state-store components. These replace the production
+# k8s/pubsub.yaml (Kafka) and k8s/statestore.yaml (Postgres) to keep e2e
+# hermetic — no external brokers/databases needed.
+#
+# Why not pubsub.in-memory? In Kubernetes, in-memory pubsub is scoped to a
+# single sidecar process, so events never cross pod boundaries — the whole
+# point of e2e. Redis pubsub is shared across all sidecars.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: pubsub
+spec:
+  type: pubsub.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: redis.default.svc.cluster.local:6379
+    - name: redisPassword
+      value: ""
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: kvstore
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: redis.default.svc.cluster.local:6379
+    - name: redisPassword
+      value: ""
+    - name: actorStateStore
+      value: "false"

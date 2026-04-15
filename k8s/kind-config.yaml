@@ -1,0 +1,8 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: dapr-java
+nodes:
+  - role: control-plane
+    # Expose the MetalLB LoadBalancer range via extraPortMappings if needed.
+    # For this project we reach services via the LoadBalancer IP directly
+    # (the KinD docker network is reachable from the host).

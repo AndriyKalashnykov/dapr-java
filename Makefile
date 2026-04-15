@@ -27,6 +27,35 @@ TRIVY_VERSION := 0.69.3
 GITLEAKS_VERSION := 8.30.1
 # renovate: datasource=github-releases depName=google/google-java-format extractVersion=^v(?<version>.*)$
 GJF_VERSION := 1.35.0
+# renovate: datasource=github-releases depName=kubernetes-sigs/kind
+KIND_VERSION := 0.31.0
+# renovate: datasource=github-releases depName=metallb/metallb
+METALLB_VERSION := 0.15.3
+# renovate: datasource=docker depName=kindest/node
+# Pinned to v1.34.3 (not v1.35.0) because MetalLB 0.15.3 has a known issue on
+# kindest/node:v1.35.0 where the controller cannot reach the K8s API (nftables
+# iptables interaction). Bump to v1.35.x once MetalLB releases a fix.
+KIND_NODE_IMAGE := kindest/node:v1.34.3@sha256:08497ee19eace7b4b5348db5c6a1591d7752b164530a36f855cb0f2bdcbadd48
+# renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
+DAPR_HELM_VERSION := 1.17.1
+# renovate: datasource=github-releases depName=kubernetes/kubernetes
+KUBECTL_VERSION := 1.35.3
+# renovate: datasource=github-releases depName=helm/helm
+HELM_VERSION := 3.20.1
+
+# === KinD cluster ===
+KIND_CLUSTER_NAME := dapr-java
+KIND_CONTEXT := kind-$(KIND_CLUSTER_NAME)
+KUBECTL_BIN := $(HOME)/.local/bin/kubectl
+HELM_BIN := $(HOME)/.local/bin/helm
+KUBECTL := $(KUBECTL_BIN) --context $(KIND_CONTEXT)
+HELM := $(HELM_BIN) --kube-context $(KIND_CONTEXT)
+# Space-separated list of services (matches Maven module dirs and k8s/ filenames)
+SERVICES := pizza-store pizza-kitchen pizza-delivery
+# Local image tag used by kind-deploy (overrides the public salaboy/pizza-* images
+# referenced in k8s/pizza-*.yaml). Images are built via spring-boot:build-image
+# and loaded into the KinD cluster with `kind load docker-image`.
+E2E_IMAGE_TAG := e2e
 
 GJF_JAR := $(HOME)/.cache/google-java-format/google-java-format-$(GJF_VERSION)-all-deps.jar
 GJF_URL := https://github.com/google/google-java-format/releases/download/v$(GJF_VERSION)/google-java-format-$(GJF_VERSION)-all-deps.jar
@@ -103,6 +132,52 @@ deps-gitleaks:
 		rm -rf $$TMPDIR; \
 	}
 
+#deps-kind: @ Install KinD binary to ~/.local/bin (pinned to $(KIND_VERSION))
+deps-kind:
+	@mkdir -p $(HOME)/.local/bin
+	@if ! test -x $(HOME)/.local/bin/kind || ! $(HOME)/.local/bin/kind version 2>/dev/null | grep -q "v$(KIND_VERSION)"; then \
+		echo "Installing kind v$(KIND_VERSION)..."; \
+		OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+		ARCH=$$(uname -m); \
+		case "$$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; esac; \
+		curl -sSfL -o $(HOME)/.local/bin/kind \
+			"https://kind.sigs.k8s.io/dl/v$(KIND_VERSION)/kind-$${OS}-$${ARCH}"; \
+		chmod +x $(HOME)/.local/bin/kind; \
+	fi
+	@$(HOME)/.local/bin/kind version
+
+#deps-kubectl: @ Install kubectl to ~/.local/bin (pinned to $(KUBECTL_VERSION))
+deps-kubectl:
+	@mkdir -p $(HOME)/.local/bin
+	@if ! test -x $(KUBECTL_BIN) || ! $(KUBECTL_BIN) version --client 2>/dev/null | grep -q "v$(KUBECTL_VERSION)"; then \
+		echo "Installing kubectl v$(KUBECTL_VERSION)..."; \
+		OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+		ARCH=$$(uname -m); \
+		case "$$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; esac; \
+		curl -sSfL -o $(KUBECTL_BIN) \
+			"https://dl.k8s.io/release/v$(KUBECTL_VERSION)/bin/$${OS}/$${ARCH}/kubectl"; \
+		chmod +x $(KUBECTL_BIN); \
+	fi
+	@$(KUBECTL_BIN) version --client | head -1
+
+#deps-helm: @ Install helm to ~/.local/bin (pinned to $(HELM_VERSION))
+deps-helm:
+	@mkdir -p $(HOME)/.local/bin
+	@if ! test -x $(HELM_BIN) || ! $(HELM_BIN) version --short 2>/dev/null | grep -q "v$(HELM_VERSION)"; then \
+		echo "Installing helm v$(HELM_VERSION)..."; \
+		OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+		ARCH=$$(uname -m); \
+		case "$$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; esac; \
+		TMPDIR=$$(mktemp -d); \
+		curl -sSfL -o $$TMPDIR/helm.tgz \
+			"https://get.helm.sh/helm-v$(HELM_VERSION)-$${OS}-$${ARCH}.tar.gz"; \
+		tar -xzf $$TMPDIR/helm.tgz -C $$TMPDIR; \
+		mv $$TMPDIR/$${OS}-$${ARCH}/helm $(HELM_BIN); \
+		rm -rf $$TMPDIR; \
+		chmod +x $(HELM_BIN); \
+	fi
+	@$(HELM_BIN) version --short
+
 #deps-gjf: @ Download google-java-format jar
 deps-gjf: $(GJF_JAR)
 
@@ -138,7 +213,7 @@ test: deps-check
 
 #integration-test: @ Run integration tests (real deps via Testcontainers, **/*IT.java via Failsafe)
 integration-test: deps-check
-	@mvn -B verify -P integration-test -Ddependency-check.skip=true -DskipTests=true
+	@mvn -B verify -P integration-test -Ddependency-check.skip=true -Dsurefire.skip=true
 
 #lint: @ Run Checkstyle static analysis
 lint: deps-check
@@ -247,6 +322,115 @@ renovate-validate:
 		npx --yes renovate --platform=local; \
 	fi
 
+#image-build: @ Build OCI images for all services via spring-boot:build-image (tag $(E2E_IMAGE_TAG))
+image-build: deps-check
+	@for svc in $(SERVICES); do \
+		echo "--- Building image for $$svc ---"; \
+		mvn -B -pl $$svc -am spring-boot:build-image \
+			-Dmaven.test.skip=true \
+			-Ddependency-check.skip=true \
+			-Dspring-boot.build-image.imageName=$$svc:$(E2E_IMAGE_TAG) \
+			|| { echo "FAIL: spring-boot:build-image failed for $$svc"; exit 1; }; \
+	done
+
+#kind-create: @ Create KinD cluster, install MetalLB and Dapr via Helm
+kind-create: deps-kind deps-kubectl deps-helm
+	@if $(HOME)/.local/bin/kind get clusters 2>/dev/null | grep -q "^$(KIND_CLUSTER_NAME)$$"; then \
+		echo "KinD cluster $(KIND_CLUSTER_NAME) already exists; reusing."; \
+	else \
+		echo "Creating KinD cluster $(KIND_CLUSTER_NAME) with image $(KIND_NODE_IMAGE)..."; \
+		$(HOME)/.local/bin/kind create cluster \
+			--name $(KIND_CLUSTER_NAME) \
+			--image $(KIND_NODE_IMAGE) \
+			--config k8s/kind-config.yaml \
+			--wait 120s; \
+	fi
+	@echo "--- Installing MetalLB v$(METALLB_VERSION) ---"
+	@$(KUBECTL) apply -f \
+		https://raw.githubusercontent.com/metallb/metallb/v$(METALLB_VERSION)/config/manifests/metallb-native.yaml
+	@echo "--- Waiting for MetalLB control plane (deployment + daemonset) ---"
+	@$(KUBECTL) -n metallb-system rollout status deployment/controller --timeout=180s
+	@$(KUBECTL) -n metallb-system rollout status daemonset/speaker --timeout=180s
+	@echo "--- Configuring MetalLB IP pool from KinD docker network ---"
+	@ip_sub=$$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' \
+		| tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.' | grep -v ':' | head -1 \
+		| awk -F. '{printf "%d.%d", $$1, $$2}'); \
+		echo "Using IP subnet $${ip_sub}.255.200-$${ip_sub}.255.250"; \
+		sed "s/METALLB_IP_SUB/$${ip_sub}/g" k8s/metallb-config.yaml | $(KUBECTL) apply -f -
+	@echo "--- Installing Dapr $(DAPR_HELM_VERSION) via Helm ---"
+	@$(HELM) repo add dapr https://dapr.github.io/helm-charts/ 2>/dev/null || true
+	@$(HELM) repo update dapr
+	@$(HELM) upgrade --install dapr dapr/dapr \
+		--version $(DAPR_HELM_VERSION) \
+		--namespace dapr-system --create-namespace \
+		--wait --timeout 5m
+	@echo "KinD cluster ready."
+
+#kind-deploy: @ Build app images, load into KinD, apply manifests, wait for rollout
+kind-deploy: kind-create image-build
+	@echo "--- Loading images into KinD cluster ---"
+	@for svc in $(SERVICES); do \
+		$(HOME)/.local/bin/kind load docker-image $$svc:$(E2E_IMAGE_TAG) \
+			--name $(KIND_CLUSTER_NAME); \
+	done
+	@echo "--- Deploying Redis (backs Dapr pubsub + state store for e2e) ---"
+	@$(KUBECTL) apply -f k8s/redis-e2e.yaml
+	@$(KUBECTL) rollout status deployment/redis --timeout=120s
+	@echo "--- Applying Dapr components (redis-backed for e2e) + subscriptions ---"
+	@# NOTE: k8s/pubsub.yaml (Kafka) and k8s/statestore.yaml (Postgres) are
+	@# replaced with k8s/components-e2e.yaml (redis) to keep e2e hermetic.
+	@# pubsub.in-memory can't be used: it's scoped per-sidecar on K8s, so
+	@# cross-service event flow never happens.
+	@$(KUBECTL) apply -f k8s/components-e2e.yaml
+	@$(KUBECTL) apply -f k8s/subscription.yaml
+	@echo "--- Applying app manifests (with local image overrides) ---"
+	@for svc in $(SERVICES); do \
+		sed -E "s|image: salaboy/$$svc:[^[:space:]]+|image: $$svc:$(E2E_IMAGE_TAG)|; \
+			s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|" \
+			k8s/$$svc.yaml | $(KUBECTL) apply -f -; \
+	done
+	@echo "--- Patching pizza-store Service to LoadBalancer ---"
+	@$(KUBECTL) patch svc pizza-store -p '{"spec":{"type":"LoadBalancer"}}'
+	@echo "--- Waiting for rollouts ---"
+	@for svc in pizza-store-deployment pizza-kitchen-deployment pizza-delivery-deployment; do \
+		$(KUBECTL) rollout status deployment/$$svc --timeout=300s; \
+	done
+	@echo "--- Waiting for LoadBalancer IP ---"
+	@for i in $$(seq 1 60); do \
+		ip=$$($(KUBECTL) get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); \
+		if [ -n "$$ip" ]; then echo "pizza-store LoadBalancer IP: $$ip"; exit 0; fi; \
+		sleep 2; \
+	done; \
+	echo "FAIL: pizza-store did not get a LoadBalancer IP"; exit 1
+
+#kind-undeploy: @ Remove app and Dapr components from KinD cluster
+kind-undeploy: deps-kubectl
+	@for svc in $(SERVICES); do \
+		$(KUBECTL) delete -f k8s/$$svc.yaml --ignore-not-found 2>/dev/null || true; \
+	done
+	@$(KUBECTL) delete -f k8s/subscription.yaml --ignore-not-found 2>/dev/null || true
+	@$(KUBECTL) delete -f k8s/components-e2e.yaml --ignore-not-found 2>/dev/null || true
+	@$(KUBECTL) delete -f k8s/redis-e2e.yaml --ignore-not-found 2>/dev/null || true
+
+#kind-destroy: @ Delete the KinD cluster
+kind-destroy: deps-kind
+	@$(HOME)/.local/bin/kind delete cluster --name $(KIND_CLUSTER_NAME) 2>/dev/null || true
+
+#kind-up: @ Alias for kind-create + kind-deploy (full stack up)
+kind-up: kind-deploy
+
+#kind-down: @ Alias for kind-undeploy + kind-destroy (full teardown)
+kind-down: kind-undeploy kind-destroy
+
+#e2e: @ Run end-to-end tests against the deployed KinD cluster
+e2e: kind-up
+	@GATEWAY_IP="$$($(KUBECTL) get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" \
+		KUBECTL="$(KUBECTL)" \
+		e2e/e2e-test.sh
+	@# Tear-down is manual by default to allow post-mortem on failure.
+	@# Uncomment the next line to auto-teardown on success:
+	@# $(MAKE) kind-down
+
 #release: @ Create a release tag with semver validation (usage: make release VERSION=x.y.z)
 release:
 	@if [ -z "$(VERSION)" ]; then \
@@ -262,7 +446,10 @@ release:
 	@echo "Release tag v$(VERSION) created. Push with: git push origin v$(VERSION)"
 
 .PHONY: help deps deps-check deps-maven deps-act deps-trivy deps-gitleaks deps-gjf \
+	deps-kind deps-kubectl deps-helm \
 	env-check clean build test integration-test lint format format-check \
 	trivy-fs trivy-config secrets deps-prune deps-prune-check static-check run \
 	ci ci-run cve-check coverage-generate coverage-check coverage-open \
-	print-deps-updates update-deps renovate-validate release
+	print-deps-updates update-deps renovate-validate \
+	image-build kind-create kind-deploy kind-undeploy kind-destroy \
+	kind-up kind-down e2e release

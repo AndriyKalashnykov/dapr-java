@@ -1,0 +1,53 @@
+---
+# Redis backing store for the Dapr pubsub + state-store components in `make e2e`.
+# Single pod, no persistence, ClusterIP only — intended purely for hermetic tests.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: redis:8.0-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          command: ["redis-server", "--save", "", "--appendonly", "no"]
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            tcpSocket: { port: 6379 }
+            initialDelaySeconds: 2
+            periodSeconds: 2
+          resources:
+            limits:   { cpu: "500m", memory: "256Mi" }
+            requests: { cpu: "50m",  memory: "64Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

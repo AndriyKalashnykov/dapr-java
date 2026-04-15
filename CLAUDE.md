@@ -46,7 +46,7 @@ make release VERSION=x.y.z              # Create a semver release tag
 |-------|---------|-------|---------|
 | Unit | `make test` | `**/*Test.java` via Surefire, in-memory PubSub Dapr sidecars | Seconds |
 | Integration | `make integration-test` | `**/*IT.java` via Failsafe, real deps via Testcontainers (no tests exist yet) | Tens of seconds |
-| E2E | _not implemented_ | KinD/Docker-Compose end-to-end assertions — follow-up | Minutes |
+| E2E | `make e2e` | `e2e/e2e-test.sh` against KinD (MetalLB LoadBalancer + Dapr Helm + in-memory pubsub/state store). Asserts health, order placement, cross-service fan-out lifecycle (store → kitchen → delivery), state store round-trip, and a negative case. | Minutes |
 
 ### Single module commands
 
