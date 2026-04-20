@@ -54,7 +54,8 @@ make deps-helm                          # Install helm binary
 make print-deps-updates                 # Print project dependencies updates
 make update-deps                        # Update project dependencies to latest releases
 make renovate-validate                  # Validate Renovate configuration
-make release VERSION=x.y.z              # Create a semver release tag (run `make cve-check` first)
+make pre-release                        # Runs cve-check (advisory) + image-scan (strict). Required before `make release`
+make release VERSION=x.y.z              # Create a semver release tag (auto-runs `make pre-release`)
 ```
 
 ### Test pyramid
@@ -167,6 +168,7 @@ Last reviewed: 2026-04-20
 - [x] **Paketo/CNB builder blind spot — added `image-scan` target** — `make image-scan` runs `trivy image --severity HIGH,CRITICAL` against each `pizza-*:e2e` OCI image after `image-build`. Wired into the `e2e` job so CI fails on layer-level CVEs that `trivy-fs` (filesystem) and `cve-check` (Maven deps) both miss. (2026-04-20)
 - [x] **Dapr Helm bump to 1.17.5** — chart now at 1.17.5 via `DAPR_HELM_VERSION`. Java SDK/testcontainers-dapr stay at 1.17.2 (latest stable on Maven Central; `io.dapr.spring:dapr-spring-boot-4-starter` 1.17.3 is RC-only — re-visit on GA). Runtime-ahead-of-SDK is the normal Dapr Java cadence. (2026-04-20)
 - [x] **`salaboy/pizza-*:0.1.0` prod images retired** — manifests (`k8s/pizza-*.yaml`, `k8s-dapr-shared/apps.yaml`) now reference `ghcr.io/andriykalashnykov/pizza-*:0.1.0`. (1) First-party build pipeline: new `publish-images` job in `ci.yml`, tag-gated, runs after e2e, uses `make image-scan` to build + scan, pushes `:<version>` and `:latest` to GHCR. (2) One-shot mirror: `scripts/mirror-salaboy-images.sh` (exposed as `make mirror-images`) copies the current upstream `:0.1.0` bits into your GHCR so the manifests resolve today; run once after `docker login ghcr.io`. Renovate `kubernetes` manager now enabled (`renovate.json`) so manifest image tags are auto-tracked. (2026-04-20)
+- [x] **Pre-release gate closes image-scan blind spot** — `make ci` and `make ci-run` do NOT exercise `image-scan` (it lives downstream of `kind-deploy`). First v0.1.0 tag push failed in CI when Trivy found 3 HIGH Go-stdlib CVEs in Paketo helper binaries that no local gate ever ran against. Fix: new `make pre-release` bundles every slow gate missing from `make ci` — `cve-check` (advisory; mirrors CI's `continue-on-error` until the OWASP NVD deserializer bug is fixed upstream) + `image-scan` (strict). `make release` depends on `pre-release`, so a tag cannot be written without the scan gate passing. `.trivyignore` documents the currently-accepted Paketo-upstream CVEs with the reasoning + tracker links required for removal. (2026-04-20)
 
 ## Skills
 

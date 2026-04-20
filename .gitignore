@@ -29,3 +29,7 @@ Thumbs.db
 
 # mermaid-lint scratch outputs
 docs/diagrams/out/.mermaid-lint-*.png
+
+# Claude Code transient state
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
