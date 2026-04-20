@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.13.0/C4_Container.puml
 !include _skinparam.iuml
 
-title Container View — Cloud-Native Pizza Store
+title Container View — Pizza on Dapr
 
 Person(customer, "Customer", "Places and tracks pizza orders")
 
