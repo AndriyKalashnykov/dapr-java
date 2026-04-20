@@ -545,7 +545,15 @@ pre-release:
 	@# cve-check is advisory pending the upstream NVD deserializer bug
 	@# (dependency-check/DependencyCheck issue, tracked in CLAUDE.md). Mirrors
 	@# the CI workflow's `continue-on-error: true` on the same step.
-	@$(MAKE) cve-check || echo "WARN: cve-check failed — see CLAUDE.md backlog (OWASP NVD deserializer bug). Continuing pre-release."
+	@#
+	@# Wrap in `timeout 300` to bound the hang: when the NVD API returns
+	@# 9-digit nanosecond timestamps the mvn dep-check plugin can spin in
+	@# an internal retry loop for 20+ min without exiting non-zero, which
+	@# means the `||` soft-fail never fires. Observed locally during the
+	@# first v0.1.0 `make release` — burned 22 min before SIGTERM. 300s is
+	@# enough for a warm NVD cache + API key, and short enough not to
+	@# block ship. When upstream fixes the deserializer, drop the wrapper.
+	@timeout 300 $(MAKE) cve-check || echo "WARN: cve-check failed or timed out after 5 min — see CLAUDE.md backlog (OWASP NVD deserializer bug). Continuing pre-release."
 	@# image-scan is the hard gate that caught Paketo CVEs post-push before.
 	@$(MAKE) image-scan
 	@echo "Pre-release gates passed (image-scan strict, cve-check advisory)."
