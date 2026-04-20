@@ -55,6 +55,33 @@ env:
   MAVEN_OPTS: '-Xmx1024m'
 
 jobs:
+  # Inspect the PR diff and expose which path groups changed. Downstream jobs
+  # that are expensive to always-run (e2e) can gate on these outputs so they
+  # only execute when relevant code changed, while docs-only / renovate PRs
+  # skip them. The `run-e2e` label remains a manual escape hatch for the rare
+  # "force-run e2e on a docs change" case.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      e2e: ${{ steps.filter.outputs.e2e }}
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+    - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+      id: filter
+      with:
+        filters: |
+          e2e:
+            - 'k8s/**'
+            - 'k8s-dapr-shared/**'
+            - 'pom.xml'
+            - 'pizza-*/pom.xml'
+            - 'pizza-*/src/**'
+            - 'Makefile'
+            - '.github/workflows/ci.yml'
+            - 'e2e/**'
+            - 'scripts/**'
+
   static-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -255,10 +282,10 @@ jobs:
   # we keep it off every PR by default and rely on static-check/build/test
   # to catch most bugs early.
   e2e:
-    needs: [build, test, integration-test]
+    needs: [build, test, integration-test, changes]
     if: |
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) ||
-      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-e2e')) ||
+      (github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'run-e2e') || needs.changes.outputs.e2e == 'true')) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -369,7 +396,7 @@ jobs:
 
   ci-pass:
     if: always()
-    needs: [static-check, build, test, integration-test, cve-check, e2e, publish-images]
+    needs: [changes, static-check, build, test, integration-test, cve-check, e2e, publish-images]
     timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:
