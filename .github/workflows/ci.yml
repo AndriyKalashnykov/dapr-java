@@ -47,6 +47,9 @@ concurrency:
 
 permissions:
   contents: read
+  # packages: write is elevated only on the publish-images job (tags only).
+  # Keeping the workflow-default at read minimizes blast radius on every
+  # main/PR run.
 
 env:
   MAVEN_OPTS: '-Xmx1024m'
@@ -298,14 +301,76 @@ jobs:
         path: /tmp/e2e-diag/
         retention-days: 7
 
+  # First-party OCI image publish. Triggers only on v* tag pushes and only
+  # after every validation job is green. Images are built via Paketo (same
+  # spring-boot:build-image path as `make image-build`), scanned by
+  # `make image-scan`, then retagged and pushed to ghcr.io under this
+  # repository's owner. Retires the external salaboy/pizza-* dependency.
+  publish-images:
+    needs: [static-check, build, test, integration-test, e2e]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+    - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+      with:
+        java-version-file: '.java-version'
+        distribution: 'temurin'
+        cache: 'maven'
+
+    - name: Ensure Maven is installed
+      run: make deps-maven
+
+    - name: Derive version from tag
+      id: ver
+      run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+    - name: Build + scan images
+      run: make image-scan
+
+    - name: Log in to GHCR
+      # renovate: datasource=github-releases depName=docker/login-action
+      uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Tag + push to GHCR
+      env:
+        VERSION: ${{ steps.ver.outputs.version }}
+      run: |
+        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        for svc in pizza-store pizza-kitchen pizza-delivery; do
+          src="${svc}:e2e"
+          dst_ver="${REGISTRY}/${OWNER}/${svc}:${VERSION}"
+          dst_latest="${REGISTRY}/${OWNER}/${svc}:latest"
+          echo "--- ${src} → ${dst_ver} + ${dst_latest} ---"
+          docker tag "${src}" "${dst_ver}"
+          docker tag "${src}" "${dst_latest}"
+          docker push "${dst_ver}"
+          docker push "${dst_latest}"
+        done
+
   ci-pass:
     if: always()
-    needs: [static-check, build, test, integration-test, cve-check, e2e]
+    needs: [static-check, build, test, integration-test, cve-check, e2e, publish-images]
     timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:
-      - name: Verify all jobs passed
+      - name: Verify all required jobs passed
         run: |
+          # publish-images is tag-gated; treat its 'skipped' result on non-tag
+          # runs as a pass. Any 'failure' anywhere else still fails the gate.
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
             echo "One or more jobs failed"
             exit 1

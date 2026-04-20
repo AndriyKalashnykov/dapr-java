@@ -28,7 +28,7 @@ spec:
           readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
-        image: salaboy/pizza-delivery:0.1.0
+        image: ghcr.io/andriykalashnykov/pizza-delivery:0.1.0
         imagePullPolicy: Always
         env:
         - name: JAVA_OPTS
@@ -108,7 +108,7 @@ spec:
           readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
-        image: salaboy/pizza-kitchen:0.1.0
+        image: ghcr.io/andriykalashnykov/pizza-kitchen:0.1.0
         imagePullPolicy: Always
         env:
         - name: JAVA_OPTS
@@ -190,7 +190,7 @@ spec:
           readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
-        image: salaboy/pizza-store:0.1.0
+        image: ghcr.io/andriykalashnykov/pizza-store:0.1.0
         imagePullPolicy: Always
         env:
         - name: JAVA_OPTS

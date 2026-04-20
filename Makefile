@@ -18,11 +18,11 @@ CURRENTTAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 # Java and Maven pins live in .mise.toml; MAVEN_VERSION here only backs the
 # deps-maven fallback used inside act/CI containers that lack mise.
 # renovate: datasource=maven depName=org.apache.maven:apache-maven
-MAVEN_VERSION := 3.9.14
+MAVEN_VERSION := 3.9.15
 # renovate: datasource=github-releases depName=nektos/act
 ACT_VERSION := 0.2.87
 # renovate: datasource=github-releases depName=aquasecurity/trivy
-TRIVY_VERSION := 0.69.3
+TRIVY_VERSION := 0.70.0
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
 GITLEAKS_VERSION := 8.30.1
 # renovate: datasource=github-releases depName=google/google-java-format extractVersion=^v(?<version>.*)$
@@ -34,9 +34,9 @@ CLOUD_PROVIDER_KIND_VERSION := 0.10.0
 # renovate: datasource=docker depName=kindest/node
 KIND_NODE_IMAGE := kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
-DAPR_HELM_VERSION := 1.17.4
+DAPR_HELM_VERSION := 1.17.5
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
-KUBECTL_VERSION := 1.35.3
+KUBECTL_VERSION := 1.35.4
 # renovate: datasource=github-releases depName=helm/helm
 HELM_VERSION := 3.20.1
 # renovate: datasource=docker depName=plantuml/plantuml
@@ -58,9 +58,11 @@ KUBECTL := $(KUBECTL_BIN) --context $(KIND_CONTEXT)
 HELM := $(HELM_BIN) --kube-context $(KIND_CONTEXT)
 # Space-separated list of services (matches Maven module dirs and k8s/ filenames)
 SERVICES := pizza-store pizza-kitchen pizza-delivery
-# Local image tag used by kind-deploy (overrides the public salaboy/pizza-* images
-# referenced in k8s/pizza-*.yaml). Images are built via spring-boot:build-image
-# and loaded into the KinD cluster with `kind load docker-image`.
+# Local image tag used by kind-deploy (overrides the ghcr.io/andriykalashnykov/
+# pizza-* images referenced in k8s/pizza-*.yaml). Images are built via
+# spring-boot:build-image and loaded into the KinD cluster with
+# `kind load docker-image` so e2e runs the freshly-built bits rather than
+# pulling from GHCR.
 E2E_IMAGE_TAG := e2e
 
 GJF_JAR := $(HOME)/.cache/google-java-format/google-java-format-$(GJF_VERSION)-all-deps.jar
@@ -403,6 +405,10 @@ renovate-validate:
 		npx --yes renovate --platform=local; \
 	fi
 
+#mirror-images: @ One-shot mirror of upstream salaboy/pizza-*:0.1.0 → ghcr.io/andriykalashnykov (requires `docker login ghcr.io`)
+mirror-images:
+	@./scripts/mirror-salaboy-images.sh
+
 #image-build: @ Build OCI images for all services via spring-boot:build-image (tag $(E2E_IMAGE_TAG))
 image-build: deps-check
 	@for svc in $(SERVICES); do \
@@ -412,6 +418,24 @@ image-build: deps-check
 			-Ddependency-check.skip=true \
 			-Dspring-boot.build-image.imageName=$$svc:$(E2E_IMAGE_TAG) \
 			|| { echo "FAIL: spring-boot:build-image failed for $$svc"; exit 1; }; \
+	done
+
+#image-scan: @ Scan built OCI images for HIGH/CRITICAL CVEs (covers Paketo base layers — Renovate blind spot)
+image-scan: image-build deps-trivy
+	@# spring-boot:build-image uses Paketo CNB builders; the resulting image
+	@# layers (JRE + base OS) are NOT visible to `trivy-fs` (which scans the
+	@# workspace) or `cve-check` (which scans Maven deps). Scanning the built
+	@# OCI image closes that gap. --ignore-unfixed keeps the gate actionable
+	@# (only advisories with an available patch fail the build).
+	@for svc in $(SERVICES); do \
+		echo "--- Scanning image $$svc:$(E2E_IMAGE_TAG) ---"; \
+		$(HOME)/.local/bin/trivy image \
+			--severity HIGH,CRITICAL \
+			--ignore-unfixed \
+			--exit-code 1 \
+			--no-progress \
+			$$svc:$(E2E_IMAGE_TAG) \
+			|| { echo "FAIL: trivy image scan found fixable HIGH/CRITICAL CVEs in $$svc:$(E2E_IMAGE_TAG)"; exit 1; }; \
 	done
 
 #kind-create: @ Create KinD cluster, start cloud-provider-kind LB controller, install Dapr via Helm
@@ -447,8 +471,8 @@ kind-create: deps-kind deps-kubectl deps-helm
 		--wait --timeout 5m
 	@echo "KinD cluster ready."
 
-#kind-deploy: @ Build app images, load into KinD, apply manifests, wait for rollout
-kind-deploy: kind-create image-build
+#kind-deploy: @ Build + scan app images, load into KinD, apply manifests, wait for rollout
+kind-deploy: kind-create image-build image-scan
 	@echo "--- Loading images into KinD cluster ---"
 	@for svc in $(SERVICES); do \
 		$(HOME)/.local/bin/kind load docker-image $$svc:$(E2E_IMAGE_TAG) \
@@ -465,8 +489,11 @@ kind-deploy: kind-create image-build
 	@$(KUBECTL) apply -f k8s/components-e2e.yaml
 	@$(KUBECTL) apply -f k8s/subscription.yaml
 	@echo "--- Applying app manifests (with local image overrides) ---"
+	@# Manifests ship ghcr.io/andriykalashnykov/* images for prod; swap to
+	@# the locally-built $$svc:e2e images so KinD uses the freshly-loaded
+	@# bits instead of pulling from GHCR.
 	@for svc in $(SERVICES); do \
-		sed -E "s|image: salaboy/$$svc:[^[:space:]]+|image: $$svc:$(E2E_IMAGE_TAG)|; \
+		sed -E "s|image: ghcr.io/andriykalashnykov/$$svc:[^[:space:]]+|image: $$svc:$(E2E_IMAGE_TAG)|; \
 			s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|" \
 			k8s/$$svc.yaml | $(KUBECTL) apply -f -; \
 	done
@@ -533,6 +560,6 @@ release:
 	trivy-fs trivy-config secrets deps-prune deps-prune-check static-check run \
 	ci ci-run cve-check coverage-generate coverage-check coverage-open \
 	print-deps-updates update-deps renovate-validate \
-	image-build kind-create kind-deploy kind-undeploy kind-destroy \
+	image-build image-scan mirror-images kind-create kind-deploy kind-undeploy kind-destroy \
 	kind-up kind-down e2e release \
 	diagrams diagrams-clean diagrams-check mermaid-lint

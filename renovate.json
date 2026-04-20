@@ -8,8 +8,15 @@
   "enabledManagers": [
     "maven",
     "github-actions",
+    "kubernetes",
     "custom.regex"
   ],
+  "kubernetes": {
+    "managerFilePatterns": [
+      "/(^|/)k8s/[^/]+\\.yaml$/",
+      "/(^|/)k8s-dapr-shared/[^/]+\\.yaml$/"
+    ]
+  },
   "customManagers": [
     {
       "customType": "regex",

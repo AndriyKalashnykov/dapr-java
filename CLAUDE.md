@@ -31,6 +31,8 @@ make diagrams-clean                     # Remove rendered PNGs
 make diagrams-check                     # Verify committed PNGs match .puml sources (static-check gate)
 make mermaid-lint                       # Lint Mermaid fenced blocks via minlag/mermaid-cli (static-check gate)
 make image-build                        # Build all three service images via spring-boot:build-image and tag :e2e
+make image-scan                         # Scan built images for HIGH/CRITICAL CVEs with fixes (closes Paketo/CNB Renovate blind spot)
+make mirror-images                      # One-shot: mirror salaboy/pizza-*:0.1.0 → ghcr.io/andriykalashnykov (requires docker login ghcr.io)
 make clean                              # Remove build artifacts
 make run                                # Run the application
 make ci                                 # Local CI: clean, deps, static-check, test, integration-test, build, coverage-check (cve-check is separate — run manually before a release tag)
@@ -140,7 +142,7 @@ Managed centrally in the parent `pom.xml` `<properties>` block. The Dapr SDK ver
 
 ## Upgrade Backlog
 
-Last reviewed: 2026-04-15
+Last reviewed: 2026-04-20
 
 - [x] **Maven 3.9 EOL (2026-03-12)** — updated `MAVEN_VERSION` to 3.9.14 (2026-04-03)
 - [x] **mise migration** — replaced SDKMAN + nvm with mise via `.mise.toml` and `.java-version` (2026-04-15)
@@ -162,6 +164,9 @@ Last reviewed: 2026-04-15
 - [x] **Dapr Helm chart bump** — chart aligned to 1.17.4 via `DAPR_HELM_VERSION` in Makefile (2026-04-15)
 - [ ] **Replace hand-drawn architecture PNGs with C4-PlantUML** — `architecture.png`, `architecture+infra.png`, `architecture+dapr.png` lack source; the `+` in filenames also complicates URL-encoding. Follow-up `/architecture-diagrams`.
 - [ ] **Add C4 Context hero diagram to README** — deferred until PlantUML toolchain and `make diagrams-check` lint are introduced (mermaid-lint not wired today). Follow-up `/architecture-diagrams`.
+- [x] **Paketo/CNB builder blind spot — added `image-scan` target** — `make image-scan` runs `trivy image --severity HIGH,CRITICAL` against each `pizza-*:e2e` OCI image after `image-build`. Wired into the `e2e` job so CI fails on layer-level CVEs that `trivy-fs` (filesystem) and `cve-check` (Maven deps) both miss. (2026-04-20)
+- [x] **Dapr Helm bump to 1.17.5** — chart now at 1.17.5 via `DAPR_HELM_VERSION`. Java SDK/testcontainers-dapr stay at 1.17.2 (latest stable on Maven Central; `io.dapr.spring:dapr-spring-boot-4-starter` 1.17.3 is RC-only — re-visit on GA). Runtime-ahead-of-SDK is the normal Dapr Java cadence. (2026-04-20)
+- [x] **`salaboy/pizza-*:0.1.0` prod images retired** — manifests (`k8s/pizza-*.yaml`, `k8s-dapr-shared/apps.yaml`) now reference `ghcr.io/andriykalashnykov/pizza-*:0.1.0`. (1) First-party build pipeline: new `publish-images` job in `ci.yml`, tag-gated, runs after e2e, uses `make image-scan` to build + scan, pushes `:<version>` and `:latest` to GHCR. (2) One-shot mirror: `scripts/mirror-salaboy-images.sh` (exposed as `make mirror-images`) copies the current upstream `:0.1.0` bits into your GHCR so the manifests resolve today; run once after `docker login ghcr.io`. Renovate `kubernetes` manager now enabled (`renovate.json`) so manifest image tags are auto-tracked. (2026-04-20)
 
 ## Skills
 
