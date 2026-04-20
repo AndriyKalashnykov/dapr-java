@@ -493,7 +493,7 @@ kind-deploy: kind-create image-build image-scan
 	@# the locally-built $$svc:e2e images so KinD uses the freshly-loaded
 	@# bits instead of pulling from GHCR.
 	@for svc in $(SERVICES); do \
-		sed -E "s|image: ghcr.io/andriykalashnykov/$$svc:[^[:space:]]+|image: $$svc:$(E2E_IMAGE_TAG)|; \
+		sed -E "s|image: ghcr.io/andriykalashnykov/dapr-java/$$svc:[^[:space:]]+|image: $$svc:$(E2E_IMAGE_TAG)|; \
 			s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|" \
 			k8s/$$svc.yaml | $(KUBECTL) apply -f -; \
 	done

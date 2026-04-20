@@ -3,7 +3,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Renovate enabled](https://img.shields.io/badge/renovate-enabled-brightgreen.svg)](https://app.renovatebot.com/dashboard#github/AndriyKalashnykov/dapr-java)
 
-# Cloud-Native Pizza Store
+# Pizza on Dapr — Spring Boot 4 Microservices Reference
 
 Reference implementation of a three-service Java microservice platform on [Dapr](https://dapr.io), demonstrating PubSub, State Store, and Service Invocation building blocks with [Spring Boot 4](https://spring.io/projects/spring-boot) and [Testcontainers](https://testcontainers.com). Deployable on any Kubernetes cluster or runnable locally with Docker.
 
@@ -11,7 +11,7 @@ Reference implementation of a three-service Java microservice platform on [Dapr]
 
 ```mermaid
 C4Context
-  title System Context — Cloud-Native Pizza Store
+  title System Context — Pizza on Dapr
 
   Person(customer, "Customer", "Places and tracks pizza orders")
   System(pizza, "Pizza Store Platform", "Orders, cooks, and delivers pizzas on Spring Boot 4 + Dapr")

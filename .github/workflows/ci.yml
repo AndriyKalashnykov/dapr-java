@@ -349,11 +349,17 @@ jobs:
       env:
         VERSION: ${{ steps.ver.outputs.version }}
       run: |
+        # Use repo-namespace (ghcr.io/<owner>/<repo>/<package>) rather than
+        # user-namespace (ghcr.io/<owner>/<package>). GITHUB_TOKEN can CREATE
+        # new packages in the repo-namespace — GHCR auto-links them to this
+        # repo. In the user-namespace it cannot, resulting in
+        # `denied: permission_denied: write_package` on first push.
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
         for svc in pizza-store pizza-kitchen pizza-delivery; do
           src="${svc}:e2e"
-          dst_ver="${REGISTRY}/${OWNER}/${svc}:${VERSION}"
-          dst_latest="${REGISTRY}/${OWNER}/${svc}:latest"
+          dst_ver="${REGISTRY}/${OWNER}/${REPO}/${svc}:${VERSION}"
+          dst_latest="${REGISTRY}/${OWNER}/${REPO}/${svc}:latest"
           echo "--- ${src} → ${dst_ver} + ${dst_latest} ---"
           docker tag "${src}" "${dst_ver}"
           docker tag "${src}" "${dst_latest}"
