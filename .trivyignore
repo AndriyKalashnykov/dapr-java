@@ -1,0 +1,29 @@
+# Trivy ignore list
+#
+# Scope: applies to `make image-scan` (OCI image scanning) and `make trivy-fs`
+# (filesystem scanning). trivy picks this file up automatically from the
+# working directory.
+#
+# Suppression policy:
+#   - Every entry requires a CVE ID, a one-line reason, and an upstream tracker.
+#   - Re-evaluate the list after every Paketo buildpack / base-image refresh.
+#     If the CVE drops off a new image scan, remove the entry.
+#
+# ------------------------------------------------------------
+# Paketo buildpack helper binaries — Go stdlib 1.26.1
+# ------------------------------------------------------------
+# These CVEs live in tiny Go helpers baked into every spring-boot:build-image
+# output:
+#     /layers/paketo-buildpacks_ca-certificates/helper/helper
+#     /layers/paketo-buildpacks_spring-boot/helper/helper
+# They run ONCE at container start (symlink setup + JVM launcher) and are not
+# reachable from application request paths. Fix is exclusively upstream:
+# Paketo must rebuild their buildpacks against Go 1.26.2+. Once they do, the
+# next `mvn spring-boot:build-image` will pull a refreshed layer and these
+# entries become dead code — remove them.
+#
+# Upstream tracker: https://github.com/paketo-buildpacks/spring-boot/issues
+#                   https://github.com/paketo-buildpacks/ca-certificates/issues
+CVE-2026-32280
+CVE-2026-32282
+CVE-2026-33810

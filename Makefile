@@ -540,8 +540,21 @@ e2e: kind-up
 	@# Uncomment the next line to auto-teardown on success:
 	@# $(MAKE) kind-down
 
+#pre-release: @ Run every slow gate that's NOT in `make ci` (cve-check + image-scan). Required before `make release`.
+pre-release:
+	@# cve-check is advisory pending the upstream NVD deserializer bug
+	@# (dependency-check/DependencyCheck issue, tracked in CLAUDE.md). Mirrors
+	@# the CI workflow's `continue-on-error: true` on the same step.
+	@$(MAKE) cve-check || echo "WARN: cve-check failed — see CLAUDE.md backlog (OWASP NVD deserializer bug). Continuing pre-release."
+	@# image-scan is the hard gate that caught Paketo CVEs post-push before.
+	@$(MAKE) image-scan
+	@echo "Pre-release gates passed (image-scan strict, cve-check advisory)."
+
 #release: @ Create a release tag with semver validation (usage: make release VERSION=x.y.z)
-release:
+#          Runs `pre-release` first so a failing OWASP or image scan blocks the
+#          tag before any ref is written. This is the only reliable local
+#          checkpoint for Paketo-layer CVEs (they're not in `make ci`).
+release: pre-release
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Error: VERSION is required. Usage: make release VERSION=x.y.z"; \
 		exit 1; \
@@ -561,5 +574,5 @@ release:
 	ci ci-run cve-check coverage-generate coverage-check coverage-open \
 	print-deps-updates update-deps renovate-validate \
 	image-build image-scan mirror-images kind-create kind-deploy kind-undeploy kind-destroy \
-	kind-up kind-down e2e release \
+	kind-up kind-down e2e pre-release release \
 	diagrams diagrams-clean diagrams-check mermaid-lint
