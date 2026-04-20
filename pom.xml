@@ -173,6 +173,22 @@
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
                     <version>${spring-boot.version}</version>
+                    <configuration>
+                        <!--
+                          BP_OCI_SOURCE is a Paketo image-labels buildpack env that
+                          sets org.opencontainers.image.source on the produced OCI
+                          image. GHCR uses this label to auto-link a newly-created
+                          user-namespace package (ghcr.io/andriykalashnykov/pizza-*)
+                          to the source repo. Without it, GITHUB_TOKEN push of a
+                          brand-new package is rejected with:
+                              denied: permission_denied: write_package
+                        -->
+                        <image>
+                            <env>
+                                <BP_OCI_SOURCE>https://github.com/AndriyKalashnykov/dapr-java</BP_OCI_SOURCE>
+                            </env>
+                        </image>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
