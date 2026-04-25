@@ -38,7 +38,7 @@ DAPR_HELM_VERSION := 1.17.5
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
 KUBECTL_VERSION := 1.35.4
 # renovate: datasource=github-releases depName=helm/helm
-HELM_VERSION := 3.20.1
+HELM_VERSION := 4.1.4
 # renovate: datasource=docker depName=plantuml/plantuml
 PLANTUML_VERSION := 1.2026.2
 # renovate: datasource=docker depName=minlag/mermaid-cli
@@ -440,6 +440,24 @@ image-scan: image-build deps-trivy
 
 #kind-create: @ Create KinD cluster, start cloud-provider-kind LB controller, install Dapr via Helm
 kind-create: deps-kind deps-kubectl deps-helm
+	@# Preflight: warn if sibling KinD clusters share the default `kind` Docker
+	@# bridge network. Their kube-proxies both DNAT 10.96.0.1:443 (in-cluster
+	@# API ClusterIP) → their own API server, and the rule sets collide on the
+	@# shared bridge. Symptom: dapr-operator CrashLoopBackOff with
+	@# `dial tcp 10.96.0.1:443: i/o timeout`. Reproduced identically under
+	@# Helm 3.20.2 and Helm 4.1.4 — not a Helm bug. Tracked in CLAUDE.md backlog.
+	@others=$$(docker network inspect kind --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' 2>/dev/null | grep -E 'control-plane$$' | grep -v "^$(KIND_CLUSTER_NAME)-control-plane$$" || true); \
+	if [ -n "$$others" ]; then \
+		echo ""; \
+		echo "WARNING: sibling KinD cluster(s) on the 'kind' Docker network:"; \
+		echo "$$others" | sed 's/^/    /'; \
+		echo "    Multiple clusters share kube-proxy iptables/nftables rules. The"; \
+		echo "    in-cluster API ClusterIP (10.96.0.1) routes can collide; pods like"; \
+		echo "    dapr-operator may hit 'dial tcp 10.96.0.1:443: i/o timeout'."; \
+		echo "    Stop the other cluster(s) before retrying e2e:"; \
+		echo "      kind delete cluster --name <name>"; \
+		echo ""; \
+	fi
 	@if $(HOME)/.local/bin/kind get clusters 2>/dev/null | grep -q "^$(KIND_CLUSTER_NAME)$$"; then \
 		echo "KinD cluster $(KIND_CLUSTER_NAME) already exists; reusing."; \
 	else \
