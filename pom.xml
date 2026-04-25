@@ -23,10 +23,10 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring-boot.version>4.0.5</spring-boot.version>
+        <spring-boot.version>4.0.6</spring-boot.version>
         <dapr.version>1.17.2</dapr.version>
         <opentelemetry.version>1.61.0</opentelemetry.version>
-        <opentelemetry-instrumentation.version>2.26.1-alpha</opentelemetry-instrumentation.version>
+        <opentelemetry-instrumentation.version>2.27.0-alpha</opentelemetry-instrumentation.version>
         <rest-assured.version>6.0.0</rest-assured.version>
         <hamcrest.version>3.0</hamcrest.version>
         <wiremock-testcontainers.version>1.0-alpha-15</wiremock-testcontainers.version>

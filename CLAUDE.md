@@ -143,7 +143,7 @@ Managed centrally in the parent `pom.xml` `<properties>` block. The Dapr SDK ver
 
 ## Upgrade Backlog
 
-Last reviewed: 2026-04-20
+Last reviewed: 2026-04-25
 
 - [x] **Maven 3.9 EOL (2026-03-12)** — updated `MAVEN_VERSION` to 3.9.14 (2026-04-03)
 - [x] **mise migration** — replaced SDKMAN + nvm with mise via `.mise.toml` and `.java-version` (2026-04-15)
@@ -153,6 +153,8 @@ Last reviewed: 2026-04-20
 - [x] **`cve-check` wired into CI** — runs on tag pushes, weekly schedule (Mon 06:00 UTC), and `workflow_dispatch`. Omitted from `make ci` and `make ci-run` — run `make cve-check` manually before pushing a release tag. NVD cache + HTML report upload intact. (2026-04-15)
 - [x] **`MAVEN_VERSION` Renovate tracking** — covered by the generic `# renovate:` customManagers regex (2026-04-15)
 - [ ] **Maven 4.0 migration** — plan when Maven 4.0 reaches GA (currently RC-5)
+- [x] **Helm 4.1.4 upgrade** — bumped `HELM_VERSION` from 3.20.1 to 4.1.4 (2026-04-25). Dapr Helm chart 1.17.5 is `apiVersion: v2` with no `kubeVersion` constraint, fully compatible with Helm 4. No CLI flag changes needed for `helm upgrade --install dapr ... --version 1.17.5 --wait --timeout 5m`. Local e2e validation was inconclusive due to a separate CNI issue on this host (see entry below); Helm version itself is not the cause — the same failure reproduces under Helm 3.20.2 with identical `dial tcp 10.96.0.1:443: i/o timeout` from `dapr-operator`. Real-CI validation will run on the next push to main.
+- [x] **Local KinD multi-cluster collision diagnosed (2026-04-25)** — `make e2e` failed locally with `dapr-operator` CrashLoopBackOff (`dial tcp 10.96.0.1:443: i/o timeout` to in-cluster `kubernetes.default`). Root cause: a sibling KinD cluster (`dapr-kafka`) was running on the shared `kind` Docker bridge network. Both clusters' kube-proxies lay down iptables/nftables DNAT rules for the same ClusterIP (`10.96.0.1:443` → local API server `172.18.0.x:6443`); the rule sets collide on the host bridge and pod→API-service traffic lands on the wrong cluster (or nowhere). Reproduced identically under Helm 3.20.2 and Helm 4.1.4 — confirms it's not a Helm regression. **Not an upstream bug**: searched `kubernetes-sigs/kind` and `aojea/kindnet` open issues, nothing matching; this is the documented constraint of running multiple KinD clusters on the shared default `kind` network. CI runners always have a clean Docker daemon, so GitHub Actions e2e is unaffected. **Mitigation shipped**: `make kind-create` now warns when sibling `*-control-plane` containers are present on the `kind` network. Workaround when running multiple Dapr clusters locally: `kind delete cluster --name <other>` before `make e2e`, or use a per-cluster network via `KIND_EXPERIMENTAL_DOCKER_NETWORK`.
 - [ ] **Spring Boot 4.0 EOL (2026-12-31)** — monitor 4.1 release schedule, plan upgrade before Dec 2026
 - [ ] **Alpha dependencies** — `opentelemetry-instrumentation-bom-alpha`, `wiremock-testcontainers` 1.0-alpha-15. Track GA releases.
 - [ ] **OWASP dependency-check NVD deserializer bug** — 12.2.1 cannot parse 9-digit nanosecond timestamps from the NVD API (`Failed to deserialize java.time.ZonedDateTime ... unparsed text found at index 23`). `cve-check` CI step is `continue-on-error: true` until a fixed release; re-enable strict failure once upstream ships. Track: dependency-check/DependencyCheck.
