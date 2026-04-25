@@ -25,5 +25,7 @@
 # Upstream tracker: https://github.com/paketo-buildpacks/spring-boot/issues
 #                   https://github.com/paketo-buildpacks/ca-certificates/issues
 CVE-2026-32280
+CVE-2026-32281
 CVE-2026-32282
+CVE-2026-32283
 CVE-2026-33810
