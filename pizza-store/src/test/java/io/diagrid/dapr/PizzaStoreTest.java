@@ -64,7 +64,7 @@ public class PizzaStoreTest {
     with()
         .body(
             new Order(
-                new Customer("salaboy", "salaboy@mail.com"),
+                new Customer("Customer", "customer@example.com"),
                 Arrays.asList(new OrderItem(PizzaType.pepperoni, 1))))
         .contentType(ContentType.JSON)
         .when()
@@ -90,13 +90,13 @@ public class PizzaStoreTest {
         """
         {
             "specversion": "1.0",
-            "type": "com.salaboy.event",
+            "type": "com.dapr.pizza.event",
             "data": {
                 "type": "order-in-preparation",
                 "service": "kitchen",
                 "message": "Your Order is in the kitchen.",
                 "order": {
-                    "customer": {"name": "salaboy", "email": "salaboy@mail.com"},
+                    "customer": {"name": "Customer", "email": "customer@example.com"},
                     "items": [{"type": "pepperoni", "amount": 1}],
                     "id": "test-order-1",
                     "orderDate": "2023-10-31T18:13:55.571+00:00",

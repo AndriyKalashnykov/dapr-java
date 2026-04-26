@@ -30,7 +30,7 @@ C4Context
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
 | Language | Java 21 LTS | Current LTS with virtual threads and pattern matching |
-| Framework | Spring Boot 4.0.6 | Current GA; aligns with Spring Cloud 2025 |
+| Framework | Spring Boot 4.0.6 | Current GA; provides embedded Tomcat, auto-configuration, and Actuator |
 | Runtime sidecar | Dapr 1.17.5 (Helm) / 1.17.2 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
 | Dapr SDK | `dapr-spring-boot-4-starter` 1.17.2 | Latest stable on Maven Central; 1.17.3 is RC-only |
 | HTTP server | Embedded Tomcat 11.0.21 | Pinned in `dependencyManagement` to address CVEs |
@@ -260,7 +260,8 @@ Run `make help` to see all available targets.
 | `make secrets` | Scan git history and tree for leaked secrets (gitleaks) |
 | `make deps-prune` | Analyze Maven dependencies (advisory) |
 | `make deps-prune-check` | Fail if unused declared Maven dependencies exist |
-| `make cve-check` | OWASP dependency vulnerability scan (run manually before pushing a release tag) |
+| `make cve-check` | OWASP dependency vulnerability scan (advisory; bundled into `make pre-release` with a 300 s timeout wrapper) |
+| `make image-scan` | Scan built `pizza-*:e2e` OCI images for HIGH/CRITICAL CVEs with fixes (closes Paketo/CNB blind spot that `trivy-fs` and `cve-check` miss) |
 | `make coverage-generate` | Generate JaCoCo coverage report (merged surefire + failsafe) |
 | `make coverage-check` | Verify merged coverage meets minimum threshold (80%) |
 | `make coverage-open` | Open coverage report in browser |
@@ -317,7 +318,8 @@ Run `make help` to see all available targets.
 | `make print-deps-updates` | Print project dependency updates |
 | `make update-deps` | Update dependencies to latest releases |
 | `make renovate-validate` | Validate Renovate configuration |
-| `make release VERSION=x.y.z` | Create a semver release tag (run `make cve-check` first) |
+| `make pre-release` | Pre-release gate: `cve-check` (advisory, 300 s timeout) + `image-scan` (strict). Required before `make release` |
+| `make release VERSION=x.y.z` | Create a semver release tag (auto-runs `make pre-release`) |
 
 ## CI/CD
 
@@ -346,7 +348,7 @@ Set secrets via **Settings > Secrets and variables > Actions > New repository se
 ## Resources and References
 
 - [Dapr For Java Developers](https://dzone.com/articles/dapr-for-java-developers)
-- [Platform Engineering on Kubernetes Book](http://mng.bz/jjKP?ref=salaboy.com)
+- [Platform Engineering on Kubernetes Book](http://mng.bz/jjKP)
 - [Cloud Native Local Development with Dapr and Testcontainers](https://www.diagrid.io/blog/cloud-native-local-development)
 
 ## Contributing
