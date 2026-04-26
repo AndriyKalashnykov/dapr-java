@@ -2,25 +2,10 @@ const stompClient = new StompJs.Client({
 });
 
 function connect() {
-    console.log("Fetching Server Info")
-    fetch("/server-info", {
-        method: "GET",
-        headers: {
-            "Content-type": "application/json; charset=UTF-8"
-        }
-    }).then((response) => {
-        console.log("Fetching Response")
-        return response.json();
-    }).then((response) => {
-        var publicURL = 'ws://' + response.publicIp + '/ws';
-        stompClient.brokerURL = publicURL;
-        console.log(publicURL);
-        console.log("Activating client")
-        stompClient.activate();
-    }).catch((error) => {
-        console.error(`Could not get server-info: ${error}`);
-    });
-
+    const wsProto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+    stompClient.brokerURL = wsProto + window.location.host + '/ws';
+    console.log("Activating STOMP client at " + stompClient.brokerURL);
+    stompClient.activate();
 };
 
 stompClient.onConnect = (frame) => {

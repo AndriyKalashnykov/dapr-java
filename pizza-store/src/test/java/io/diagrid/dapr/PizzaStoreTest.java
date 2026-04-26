@@ -75,11 +75,6 @@ public class PizzaStoreTest {
   }
 
   @Test
-  public void testGetServerInfo() {
-    get("/server-info").then().assertThat().statusCode(200).body("publicIp", notNullValue());
-  }
-
-  @Test
   public void testGetOrders() {
     get("/order").then().assertThat().statusCode(200);
   }
