@@ -296,20 +296,26 @@ diagrams-check: diagrams
 	}
 
 #mermaid-lint: @ Lint Mermaid code blocks embedded in markdown files
+# Renders each Mermaid block to SVG via the same engine GitHub uses;
+# render success == lint pass. Source is mounted read-only (defense in
+# depth — a buggy mmdc can't write into the repo) and output goes to
+# /tmp INSIDE the container, which the `--rm` cleanup discards when the
+# container exits. No host bind mount for output, no scratch PNGs in
+# `docs/diagrams/out/` — committed-asset territory stays untouched.
 mermaid-lint:
-	@files=$$(grep -rl --include='*.md' --exclude-dir=target --exclude-dir=node_modules '```mermaid' . 2>/dev/null || true); \
+	@files=$$(grep -rl --include='*.md' --exclude-dir=.git --exclude-dir=target --exclude-dir=node_modules '```mermaid' . 2>/dev/null || true); \
 	if [ -z "$$files" ]; then \
 		echo "No Mermaid blocks found — skipping."; \
 		exit 0; \
 	fi; \
 	for f in $$files; do \
 		echo "--- Linting Mermaid blocks in $$f ---"; \
-		docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR):/data" \
+		docker run --rm -u $$(id -u):$$(id -g) \
+			-v "$(CURDIR):/data:ro" \
 			minlag/mermaid-cli:$(MERMAID_CLI_VERSION) \
-			-i "/data/$$f" -o "/data/$(DIAGRAM_DIR)/out/.mermaid-lint.png" \
+			-i "/data/$$f" -o "/tmp/$$(basename $$f .md).svg" \
 			> /dev/null || { echo "FAIL: Mermaid lint failed in $$f"; exit 1; }; \
-	done; \
-	rm -f $(DIAGRAM_DIR)/out/.mermaid-lint*.png
+	done
 
 #static-check: @ Composite quality gate (format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint)
 static-check: format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint
@@ -404,10 +410,6 @@ renovate-validate:
 	else \
 		npx --yes renovate --platform=local; \
 	fi
-
-#mirror-images: @ One-shot mirror of upstream salaboy/pizza-*:0.1.0 → ghcr.io/andriykalashnykov (requires `docker login ghcr.io`)
-mirror-images:
-	@./scripts/mirror-salaboy-images.sh
 
 #image-build: @ Build OCI images for all services via spring-boot:build-image (tag $(E2E_IMAGE_TAG))
 image-build: deps-check
