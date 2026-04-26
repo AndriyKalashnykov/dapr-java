@@ -195,8 +195,6 @@ spec:
         env:
         - name: JAVA_OPTS
           value: "-XX:+UseParallelGC -XX:ActiveProcessorCount=1 -XX:MaxRAMPercentage=75 -XX:TieredStopAtLevel=1"
-        - name: PUBLIC_IP
-          value: localhost:8080
         - name: DAPR_HTTP_ENDPOINT
           value: http://pizza-store-dapr.default.svc.cluster.local:3500
         - name: DAPR_GRPC_ENDPOINT

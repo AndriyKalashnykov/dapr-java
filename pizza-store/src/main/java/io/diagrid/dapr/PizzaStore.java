@@ -37,16 +37,6 @@ public class PizzaStore {
   @Value("${stateStoreName:kvstore}")
   private String stateStoreName;
 
-  @Value("${PUBLIC_IP:localhost}")
-  private String publicIp;
-
-  @GetMapping("/server-info")
-  public Info getInfo() {
-    return new Info(publicIp);
-  }
-
-  public record Info(String publicIp) {}
-
   private String key = "orders";
   private static RestTemplate restTemplate;
 
