@@ -1,6 +1,6 @@
 {
     "specversion" : "1.0",
-    "type" : "com.salaboy.event",
+    "type" : "com.dapr.pizza.event",
     "data": {
         "type": "order-on-its-way",
         "service": "delivery",
@@ -8,8 +8,8 @@
         "order": {
             "customer":
                     {
-                        "name":"salaboy",
-                        "email":"salaboy@mail.com"
+                        "name":"Customer",
+                        "email":"customer@example.com"
                     },
             "items":[
                     {

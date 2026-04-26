@@ -332,7 +332,7 @@ jobs:
   # after every validation job is green. Images are built via Paketo (same
   # spring-boot:build-image path as `make image-build`), scanned by
   # `make image-scan`, then retagged and pushed to ghcr.io under this
-  # repository's owner. Retires the external salaboy/pizza-* dependency.
+  # repository's owner.
   publish-images:
     needs: [static-check, build, test, integration-test, e2e]
     if: startsWith(github.ref, 'refs/tags/v')

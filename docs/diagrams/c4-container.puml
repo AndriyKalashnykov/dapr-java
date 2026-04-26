@@ -7,10 +7,10 @@ title Container View — Pizza on Dapr
 Person(customer, "Customer", "Places and tracks pizza orders")
 
 System_Boundary(pizza, "Pizza Store Platform") {
-  Container(store, "pizza-store", "Spring Boot 4.0.5, Java 21", "Frontend + backend — places orders, receives event updates, pushes live status to the browser")
-  Container(kitchen, "pizza-kitchen", "Spring Boot 4.0.5, Java 21", "Prepares pizzas; publishes ORDER_IN_PREPARATION and ORDER_READY")
-  Container(delivery, "pizza-delivery", "Spring Boot 4.0.5, Java 21", "Delivers pizzas in three stages; publishes ORDER_ON_ITS_WAY (x3) and ORDER_COMPLETED")
-  Container(daprSidecar, "Dapr sidecar", "Dapr 1.17.2", "One per pod (app-ids: pizza-store, kitchen-service, delivery-service) — brokers service invocation, pub/sub, state")
+  Container(store, "pizza-store", "Spring Boot 4.0.6, Java 21", "Frontend + backend — places orders, receives event updates, pushes live status to the browser")
+  Container(kitchen, "pizza-kitchen", "Spring Boot 4.0.6, Java 21", "Prepares pizzas; publishes ORDER_IN_PREPARATION and ORDER_READY")
+  Container(delivery, "pizza-delivery", "Spring Boot 4.0.6, Java 21", "Delivers pizzas in three stages; publishes ORDER_ON_ITS_WAY (x3) and ORDER_COMPLETED")
+  Container(daprSidecar, "Dapr sidecar", "Dapr runtime 1.17.5 (Helm) / 1.17.2 (Testcontainers)", "One per pod (app-ids: pizza-store, kitchen-service, delivery-service) — brokers service invocation, pub/sub, state")
   ContainerDb(state, "State Store", "Dapr component kvstore", "PostgreSQL in prod / Redis in e2e — persists orders")
   ContainerQueue(pubsub, "PubSub", "Dapr component pubsub (topic: topic)", "Kafka in prod / Redis in e2e — CloudEvents transport")
 }

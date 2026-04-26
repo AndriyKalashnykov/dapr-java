@@ -133,8 +133,8 @@ function placeOrder() {
         method: "POST",
         body: JSON.stringify({
             customer: {
-                name: "salaboy",
-                email: "salaboy@mail.com",
+                name: "Customer",
+                email: "customer@example.com",
             },
             items: [
                 {

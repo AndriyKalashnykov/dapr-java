@@ -11,8 +11,8 @@ Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
     Container(lb, "Service: pizza-store", "LoadBalancer 80 -> 8080 (cloud-provider-kind / cloud LB)")
 
     Deployment_Node(appPod, "Pod (x 3: pizza-store, pizza-kitchen, pizza-delivery)") {
-      Container(app, "Spring Boot service", "Spring Boot 4.0.5, Java 21 — three per-service replicas")
-      Container(sidecar, "Dapr sidecar", "Dapr 1.17.2 — injected per pod; app-ids match service names")
+      Container(app, "Spring Boot service", "Spring Boot 4.0.6, Java 21 — three per-service replicas")
+      Container(sidecar, "Dapr sidecar", "Dapr runtime 1.17.5 — injected per pod; app-ids match service names")
     }
 
     ContainerQueue(pubsub, "PubSub backend", "Kafka (prod) / Redis (e2e)")
@@ -20,7 +20,7 @@ Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
   }
 
   Deployment_Node(daprSys, "Namespace: dapr-system") {
-    Container(daprCtrl, "Dapr control plane", "Helm chart dapr 1.17.4 — operator, placement, sentry, injector")
+    Container(daprCtrl, "Dapr control plane", "Helm chart dapr 1.17.5 — operator, placement, sentry, injector")
   }
 }
 
