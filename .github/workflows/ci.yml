@@ -4,35 +4,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
-    paths-ignore:
-      - '*.md'
-      - '!CLAUDE.md'
-      - 'docs/**'
-      - 'specs/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.claudeignore'
-      - '.claude/**'
-      - 'benchmarks/**'
-      - '**.png'
-      - '**.jpg'
-      - '**.gif'
-      - '**.svg'
   pull_request:
-    paths-ignore:
-      - '*.md'
-      - '!CLAUDE.md'
-      - 'docs/**'
-      - 'specs/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.claudeignore'
-      - '.claude/**'
-      - 'benchmarks/**'
-      - '**.png'
-      - '**.jpg'
-      - '**.gif'
-      - '**.svg'
+    branches: [main]
   workflow_call:
   # Weekly OWASP/NVD scan so new upstream advisories are caught even without
   # a code push. Monday 06:00 UTC keeps the cve-check job off the critical
@@ -47,6 +20,10 @@ concurrency:
 
 permissions:
   contents: read
+  # pull-requests: read is required for dorny/paths-filter on pull_request
+  # events — without it, listFiles() fails with "Resource not accessible by
+  # integration" and the changes job blocks every gated downstream job.
+  pull-requests: read
   # packages: write is elevated only on the publish-images job (tags only).
   # Keeping the workflow-default at read minimizes blast radius on every
   # main/PR run.
@@ -56,21 +33,28 @@ env:
 
 jobs:
   # Inspect the PR diff and expose which path groups changed. Downstream jobs
-  # that are expensive to always-run (e2e) can gate on these outputs so they
-  # only execute when relevant code changed, while docs-only / renovate PRs
-  # skip them. The `run-e2e` label remains a manual escape hatch for the rare
-  # "force-run e2e on a docs change" case.
+  # gate on `code` (binary skip-everything-on-docs-only) and `e2e` (the
+  # heavy KinD job, off by default on PRs unless code under k8s/ / Java
+  # sources / Makefile / workflow itself changed). The `run-e2e` label
+  # remains a manual escape hatch for the rare "force-run e2e on a docs
+  # change" case.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
+      code: ${{ steps.filter.outputs.code }}
       e2e: ${{ steps.filter.outputs.e2e }}
     steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-    - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+    - name: Checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+    - name: Detect changed paths
+      uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
       id: filter
       with:
         filters: |
+          code:
+            - '!(**.md|docs/**|specs/**|LICENSE|.gitignore|.claudeignore|.claude/**|benchmarks/**|**.png|**.jpg|**.gif|**.svg)'
+            - 'CLAUDE.md'
           e2e:
             - 'k8s/**'
             - 'k8s-dapr-shared/**'
@@ -83,6 +67,8 @@ jobs:
             - 'scripts/**'
 
   static-check:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -93,7 +79,8 @@ jobs:
       with:
         fetch-depth: 0
 
-    - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    - name: Set up JDK
+      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
       with:
         java-version-file: '.java-version'
         distribution: 'temurin'
@@ -102,11 +89,20 @@ jobs:
     - name: Ensure Maven is installed
       run: make deps-maven
 
+    # static-check invokes trivy + gitleaks (in addition to format-check,
+    # checkstyle, diagrams-check, mermaid-lint). mise installs both pinned
+    # to .mise.toml; the act runner image has neither preinstalled.
+    - name: Install mise (provides trivy, gitleaks pinned)
+      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      with:
+        cache: true
+
     - name: Static check
       run: make static-check
 
   build:
-    needs: [static-check]
+    needs: [changes, static-check]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -115,7 +111,8 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    - name: Set up JDK
+      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
       with:
         java-version-file: '.java-version'
         distribution: 'temurin'
@@ -146,7 +143,8 @@ jobs:
   # Unit tests only — fast feedback loop. Runs surefire (no Testcontainers
   # heavy lifting, no Dapr sidecars). Integration tests live in their own job.
   test:
-    needs: [static-check]
+    needs: [changes, static-check]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -155,7 +153,8 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    - name: Set up JDK
+      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
       with:
         java-version-file: '.java-version'
         distribution: 'temurin'
@@ -173,7 +172,8 @@ jobs:
   # Also produces the merged unit+IT JaCoCo coverage report and gates on the
   # 0.80 portfolio threshold.
   integration-test:
-    needs: [static-check]
+    needs: [changes, static-check]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -182,7 +182,8 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    - name: Set up JDK
+      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
       with:
         java-version-file: '.java-version'
         distribution: 'temurin'
@@ -196,7 +197,6 @@ jobs:
 
     - name: Verify coverage threshold
       run: make coverage-check
-      continue-on-error: true
 
     - name: Upload coverage report
       if: always()
@@ -208,7 +208,7 @@ jobs:
         retention-days: 14
 
   cve-check:
-    needs: [build, test, integration-test]
+    needs: [static-check]
     # Gated to cut CI cost on every main push. Runs on:
     #   - tag pushes (release-time gate before shipping)
     #   - weekly schedule (catches new upstream CVEs in unchanged deps)
@@ -228,7 +228,8 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    - name: Set up JDK
+      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
       with:
         java-version-file: '.java-version'
         distribution: 'temurin'
@@ -270,19 +271,20 @@ jobs:
         if-no-files-found: ignore
 
   # MANDATORY end-to-end test job. Deploys the three services plus Dapr to
-  # a KinD cluster (MetalLB + in-memory pubsub/state store) and runs
-  # e2e/e2e-test.sh through the MetalLB-exposed pizza-store LoadBalancer.
+  # a KinD cluster (cloud-provider-kind LB + redis-backed pubsub/state) and
+  # runs e2e/e2e-test.sh through the LoadBalancer-exposed pizza-store.
   #
   # Trigger policy:
   #   - Every push to main and every tag push (baseline coverage)
   #   - Pull requests labelled `run-e2e` (opt-in for feature branches)
+  #   - Pull requests where changes.e2e=='true' (e2e-relevant paths)
   #   - Manual runs via workflow_dispatch
   #
   # KinD + image-build + Dapr install runs ~10-15 min on GitHub runners, so
   # we keep it off every PR by default and rely on static-check/build/test
   # to catch most bugs early.
   e2e:
-    needs: [build, test, integration-test, changes]
+    needs: [changes, build, test]
     if: |
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) ||
       (github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'run-e2e') || needs.changes.outputs.e2e == 'true')) ||
@@ -294,7 +296,8 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    - name: Set up JDK
+      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
       with:
         java-version-file: '.java-version'
         distribution: 'temurin'
@@ -303,8 +306,10 @@ jobs:
     - name: Ensure Maven is installed
       run: make deps-maven
 
-    - name: Install kind, kubectl, helm (pinned)
-      run: make deps-kind deps-kubectl deps-helm
+    - name: Install mise (provides kind, kubectl, helm, trivy, gitleaks pinned)
+      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      with:
+        cache: true
 
     - name: Run end-to-end tests
       run: make e2e
@@ -328,19 +333,37 @@ jobs:
         path: /tmp/e2e-diag/
         retention-days: 7
 
-  # First-party OCI image publish. Triggers only on v* tag pushes and only
-  # after every validation job is green. Images are built via Paketo (same
-  # spring-boot:build-image path as `make image-build`), scanned by
-  # `make image-scan`, then retagged and pushed to ghcr.io under this
-  # repository's owner.
+  # First-party OCI image publish with pre-push hardening gates. Triggers
+  # only on v* tag pushes and only after every validation job is green.
+  # Per /harden-image-pipeline canonical pattern (Pattern A — Phase 1+2):
+  #   GATE 1: Trivy image scan (CRITICAL/HIGH blocking, fixed-only).
+  #   GATE 2: Spring Boot boot-marker smoke test (catches boot regressions
+  #           Trivy can't see — missing classes, port binds, config errors).
+  #   GATE 3: cosign keyless OIDC signing post-push (Sigstore Fulcio).
+  # provenance: false / sbom: false: not applicable to Paketo CNB build path
+  # (no buildkit attestations emitted), so the GHCR Packages "OS / Arch" tab
+  # already renders correctly.
+  # Multi-arch is single-arch (linux/amd64) for now — Paketo CNB
+  # spring-boot:build-image runs only on the host's native arch. ARM
+  # consumers (Apple Silicon, Graviton) need either a runs-on:
+  # ubuntu-24.04-arm matrix runner + manifest assemble, or a thin Dockerfile
+  # + docker/build-push-action. Tracked in CLAUDE.md upgrade backlog.
+  # strategy.matrix runs each service in parallel on its own runner —
+  # wall-clock = max(per-service-time), not sum.
   publish-images:
-    needs: [static-check, build, test, integration-test, e2e]
+    needs: [static-check, build, test, integration-test, cve-check, e2e]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write
+      id-token: write       # cosign keyless OIDC (Sigstore Fulcio)
+    strategy:
+      fail-fast: false      # one bad service shouldn't cancel the others'
+                            # in-flight scans/signs — collect all results
+      matrix:
+        service: [pizza-store, pizza-kitchen, pizza-delivery]
     env:
       REGISTRY: ghcr.io
 
@@ -348,7 +371,8 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    - name: Set up JDK
+      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
       with:
         java-version-file: '.java-version'
         distribution: 'temurin'
@@ -357,42 +381,116 @@ jobs:
     - name: Ensure Maven is installed
       run: make deps-maven
 
+    - name: Install mise (provides trivy pinned)
+      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      with:
+        cache: true
+
     - name: Derive version from tag
       id: ver
       run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-    - name: Build + scan images
-      run: make image-scan
+    - name: Lowercase namespace
+      id: ns
+      run: |
+        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+        echo "owner=${OWNER}" >> "$GITHUB_OUTPUT"
+        echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
+
+    # GATE 1+2: Build + Trivy image scan via existing make target.
+    # SERVICES override scopes the loop to this matrix entry only — each
+    # service builds + scans on its own runner in parallel.
+    - name: Build + scan ${{ matrix.service }} image
+      run: make image-scan SERVICES='${{ matrix.service }}'
+
+    # GATE 3: Spring Boot boot-marker smoke test.
+    # Validates the image actually boots Spring Boot before publishing —
+    # catches regressions Trivy and filesystem scans miss (missing classes,
+    # port bind failures, broken auto-config). Pizza services depend on
+    # Dapr sidecars + state store at runtime, so the readiness probe would
+    # fail without them; the boot-marker fires BEFORE any external-dep
+    # check, which is exactly what we want here.
+    - name: Smoke test ${{ matrix.service }}
+      run: |
+        set -euo pipefail
+        SVC='${{ matrix.service }}'
+        docker run -d --name="${SVC}-smoke" "${SVC}:e2e"
+        echo "Waiting up to 90s for Spring Boot to boot..."
+        end=$((SECONDS + 90))
+        while [ $SECONDS -lt $end ]; do
+          if docker logs "${SVC}-smoke" 2>&1 | grep -qE 'Started [A-Z][a-zA-Z]+Application in|Tomcat started on port|Netty started on port'; then
+            echo "PASS: ${SVC} container booted Spring Boot successfully"
+            docker rm -f "${SVC}-smoke" >/dev/null
+            exit 0
+          fi
+          sleep 3
+        done
+        echo "FAIL: ${SVC} did not reach Spring Boot start within 90s"
+        docker logs "${SVC}-smoke"
+        docker rm -f "${SVC}-smoke" >/dev/null || true
+        exit 1
+
+    - name: Cleanup smoke container
+      if: always()
+      run: docker rm -f '${{ matrix.service }}-smoke' 2>/dev/null || true
 
     - name: Log in to GHCR
       # renovate: datasource=github-releases depName=docker/login-action
-      uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Tag + push to GHCR
+    - name: Tag + push ${{ matrix.service }} to GHCR
+      id: push
       env:
+        SVC: ${{ matrix.service }}
         VERSION: ${{ steps.ver.outputs.version }}
+        OWNER: ${{ steps.ns.outputs.owner }}
+        REPO: ${{ steps.ns.outputs.repo }}
       run: |
+        set -euo pipefail
         # Use repo-namespace (ghcr.io/<owner>/<repo>/<package>) rather than
         # user-namespace (ghcr.io/<owner>/<package>). GITHUB_TOKEN can CREATE
         # new packages in the repo-namespace — GHCR auto-links them to this
         # repo. In the user-namespace it cannot, resulting in
         # `denied: permission_denied: write_package` on first push.
-        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-        for svc in pizza-store pizza-kitchen pizza-delivery; do
-          src="${svc}:e2e"
-          dst_ver="${REGISTRY}/${OWNER}/${REPO}/${svc}:${VERSION}"
-          dst_latest="${REGISTRY}/${OWNER}/${REPO}/${svc}:latest"
-          echo "--- ${src} → ${dst_ver} + ${dst_latest} ---"
-          docker tag "${src}" "${dst_ver}"
-          docker tag "${src}" "${dst_latest}"
-          docker push "${dst_ver}"
-          docker push "${dst_latest}"
-        done
+        src="${SVC}:e2e"
+        dst_ver="${REGISTRY}/${OWNER}/${REPO}/${SVC}:${VERSION}"
+        dst_latest="${REGISTRY}/${OWNER}/${REPO}/${SVC}:latest"
+        echo "--- ${src} → ${dst_ver} + ${dst_latest} ---"
+        docker tag "${src}" "${dst_ver}"
+        docker tag "${src}" "${dst_latest}"
+        docker push "${dst_ver}"
+        docker push "${dst_latest}"
+        # Capture the manifest digest so cosign signs by digest, not by tag —
+        # the digest covers all tags pointing to it and produces a clearer
+        # Rekor trail than tag-based signing.
+        DIGEST=$(docker inspect --format '{{ index .RepoDigests 0 }}' "${dst_ver}" | sed 's/.*@//')
+        echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+        {
+          echo 'tags<<TAGS_EOF'
+          echo "${dst_ver}"
+          echo "${dst_latest}"
+          echo 'TAGS_EOF'
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+    - name: Sign image with cosign (keyless OIDC)
+      env:
+        TAGS: ${{ steps.push.outputs.tags }}
+        DIGEST: ${{ steps.push.outputs.digest }}
+      run: |
+        set -euo pipefail
+        while IFS= read -r tag; do
+          [ -z "$tag" ] && continue
+          echo "→ cosign sign ${tag}@${DIGEST}"
+          cosign sign --yes "${tag}@${DIGEST}"
+        done <<< "${TAGS}"
 
   ci-pass:
     if: always()
@@ -403,8 +501,14 @@ jobs:
       - name: Verify all required jobs passed
         run: |
           # publish-images is tag-gated; treat its 'skipped' result on non-tag
-          # runs as a pass. Any 'failure' anywhere else still fails the gate.
+          # runs as a pass. Code-gated jobs (static-check/build/test/IT) are
+          # also legitimately 'skipped' on docs-only PRs. Any 'failure' or
+          # 'cancelled' result fails the gate.
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
-            echo "One or more jobs failed"
+            echo "One or more required jobs failed"
+            exit 1
+          fi
+          if [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more required jobs were cancelled"
             exit 1
           fi

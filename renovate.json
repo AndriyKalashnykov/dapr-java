@@ -39,7 +39,7 @@
   "prHourlyLimit": 0,
   "platformAutomerge": true,
   "automerge": true,
-  "automergeType": "branch",
+  "automergeType": "pr",
   "automergeStrategy": "squash",
   "ignoreTests": false,
   "vulnerabilityAlerts": {
@@ -81,6 +81,32 @@
       "groupName": "Spring Boot",
       "matchPackageNames": [
         "/^org\\.springframework\\.boot/"
+      ]
+    },
+    {
+      "description": "Group Spring Framework dependencies",
+      "groupName": "Spring Framework",
+      "matchPackageNames": [
+        "/^org\\.springframework:/"
+      ]
+    },
+    {
+      "description": "Group Apache commons dependencies",
+      "groupName": "Apache commons",
+      "matchPackageNames": [
+        "commons-io:commons-io",
+        "/^org\\.apache\\.commons/"
+      ]
+    },
+    {
+      "description": "Group annotation libraries",
+      "groupName": "annotations",
+      "matchPackageNames": [
+        "/^com\\.google\\.errorprone/",
+        "net.jcip:jcip-annotations",
+        "org.checkerframework:checker-qual",
+        "org.jetbrains:annotations",
+        "org.jspecify:jspecify"
       ]
     },
     {

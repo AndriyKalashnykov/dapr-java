@@ -6,12 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 make help                               # List available tasks on this project
-make deps                               # Install build dependencies via mise (reads .mise.toml)
+make deps                               # Install build dependencies via mise (reads .mise.toml). mise is the single source of truth for binaries (Java, Maven, Node, kubectl, helm, kind, act, trivy, gitleaks)
 make deps-check                         # Verify build dependencies are installed
-make deps-maven                         # Install Maven from Apache archives (CI fallback)
-make deps-act                           # Install act for local CI testing
-make deps-trivy                         # Install Trivy for security scanning
-make deps-gitleaks                      # Install gitleaks for secret scanning
+make deps-maven                         # Install Maven from Apache archives (CI fallback when mise unavailable)
 make deps-gjf                           # Download google-java-format jar
 make env-check                          # Show installed tool versions
 make build                              # Build project (skips tests)
@@ -47,9 +44,6 @@ make kind-create                        # (granular) Create KinD cluster + start
 make kind-deploy                        # (granular) Build + load images, apply k8s manifests, wait for rollout + LB IP
 make kind-undeploy                      # (granular) Delete application manifests from cluster
 make kind-destroy                       # (granular) Stop cloud-provider-kind + delete KinD cluster
-make deps-kind                          # Install KinD binary
-make deps-kubectl                       # Install kubectl binary
-make deps-helm                          # Install helm binary
 make print-deps-updates                 # Print project dependencies updates
 make update-deps                        # Update project dependencies to latest releases
 make renovate-validate                  # Validate Renovate configuration
@@ -183,6 +177,5 @@ Use the following skills when working on related files:
 | `renovate.json` | `/renovate` |
 | `README.md` | `/readme` |
 | `.github/workflows/*.{yml,yaml}` | `/ci-workflow` |
-| `CLAUDE.md` | `/claude` |
 
 When spawning subagents, always pass conventions from the respective skill into the agent's prompt.

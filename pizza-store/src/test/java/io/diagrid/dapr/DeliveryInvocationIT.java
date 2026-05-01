@@ -17,10 +17,10 @@ import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.util.TestSocketUtils;
 import org.wiremock.integrations.testcontainers.WireMockContainer;
 
 /**
@@ -31,16 +31,20 @@ import org.wiremock.integrations.testcontainers.WireMockContainer;
  */
 @SpringBootTest(
     classes = PizzaStoreAppTest.class,
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
 @ImportTestcontainers
 public class DeliveryInvocationIT {
 
   private static final String ORDER_ID = "it-delivery-order-1";
 
+  // Allocate a free port at class-load time so DaprContainer's app channel
+  // and Spring's embedded Tomcat agree on the port.
+  private static final int APP_PORT = TestSocketUtils.findAvailableTcpPort();
+
   static DaprContainer dapr =
       new DaprContainer(DaprContainer.getDefaultImageName())
           .withAppName("local-dapr-app")
-          .withAppPort(8080)
+          .withAppPort(APP_PORT)
           .withAppChannelAddress("host.testcontainers.internal")
           .withExtraHost("host.testcontainers.internal", "host-gateway")
           .withComponent(
@@ -53,6 +57,7 @@ public class DeliveryInvocationIT {
 
   @DynamicPropertySource
   static void daprProperties(DynamicPropertyRegistry registry) {
+    registry.add("server.port", () -> APP_PORT);
     registry.add("dapr.grpc.port", dapr::getGrpcPort);
     registry.add("dapr.http.port", dapr::getHttpPort);
     registry.add("DAPR_HTTP_ENDPOINT", wireMock::getBaseUrl);
@@ -62,13 +67,7 @@ public class DeliveryInvocationIT {
   void setSystemProperties() {
     System.setProperty("dapr.grpc.port", String.valueOf(dapr.getGrpcPort()));
     System.setProperty("dapr.http.port", String.valueOf(dapr.getHttpPort()));
-  }
-
-  @LocalServerPort private int port;
-
-  @BeforeEach
-  public void setUp() {
-    RestAssured.port = port;
+    RestAssured.port = APP_PORT;
     WireMock.configureFor(wireMock.getHost(), wireMock.getPort());
     WireMock.reset();
     WireMock.stubFor(put(urlEqualTo("/prepare")).willReturn(aResponse().withStatus(200)));

@@ -2,10 +2,11 @@
 
 SHELL := /bin/bash
 
-# Ensure tools installed to ~/.local/bin (mise, act, trivy, gitleaks, etc.) AND
-# mise shims (java, mvn, node installed by `mise install`) are on PATH for
-# every recipe. The shims path lets us run `java` / `mvn` directly even when
-# the user's shell hasn't sourced `eval "$(mise activate ...)"`. Also needed
+# Ensure tools installed to ~/.local/bin (mise itself, plus jars/scripts that
+# don't fit into mise) AND mise shims (java, mvn, node, kubectl, helm, kind,
+# act, trivy, gitleaks installed by `mise install`) are on PATH for every
+# recipe. The shims path lets us run those tools directly even when the
+# user's shell hasn't sourced `eval "$(mise activate ...)"`. Also needed
 # inside the act runner container where these paths are not preconfigured.
 # Exported so every sub-shell the recipes spawn inherits it.
 export PATH := $(HOME)/.local/share/mise/shims:$(HOME)/.local/bin:$(PATH)
@@ -15,30 +16,31 @@ APP_NAME   ?= $(notdir $(CURDIR))
 CURRENTTAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
 # === Tool Versions (pinned) ===
-# Java and Maven pins live in .mise.toml; MAVEN_VERSION here only backs the
-# deps-maven fallback used inside act/CI containers that lack mise.
-# renovate: datasource=maven depName=org.apache.maven:apache-maven
-MAVEN_VERSION := 3.9.15
-# renovate: datasource=github-releases depName=nektos/act
-ACT_VERSION := 0.2.87
-# renovate: datasource=github-releases depName=aquasecurity/trivy
-TRIVY_VERSION := 0.70.0
-# renovate: datasource=github-releases depName=gitleaks/gitleaks
-GITLEAKS_VERSION := 8.30.1
+# Single source of truth: .mise.toml. Tools managed by mise (java, maven,
+# node, act, trivy, gitleaks, kind, kubectl, helm) are NOT pinned again here
+# — `mise install` is the install path; mise shims provide the binaries.
+#
+# Constants below are for tools that mise cannot manage:
+#   - GJF_VERSION:                  jar download (no binary)
+#   - KIND_NODE_IMAGE:              Docker image (not a host binary)
+#   - DAPR_HELM_VERSION:            Helm chart version (not a binary)
+#   - PLANTUML_VERSION:             Docker image
+#   - MERMAID_CLI_VERSION:          Docker image
+#   - CLOUD_PROVIDER_KIND_VERSION:  Docker image (controller runs as a
+#                                   container on the host, not a binary)
+#   - MAVEN_VERSION:                derived from .mise.toml so the
+#                                   deps-maven Apache-archives fallback (used
+#                                   only by CI containers without mise)
+#                                   tracks the same version as mise.
+MAVEN_VERSION := $(shell awk -F'"' '/^maven *= *"/ {print $$2; exit}' .mise.toml)
 # renovate: datasource=github-releases depName=google/google-java-format extractVersion=^v(?<version>.*)$
 GJF_VERSION := 1.35.0
-# renovate: datasource=github-releases depName=kubernetes-sigs/kind
-KIND_VERSION := 0.31.0
-# renovate: datasource=github-releases depName=kubernetes-sigs/cloud-provider-kind
+# renovate: datasource=docker depName=registry.k8s.io/cloud-provider-kind/cloud-controller-manager
 CLOUD_PROVIDER_KIND_VERSION := 0.10.0
 # renovate: datasource=docker depName=kindest/node
 KIND_NODE_IMAGE := kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
 DAPR_HELM_VERSION := 1.17.5
-# renovate: datasource=github-releases depName=kubernetes/kubernetes
-KUBECTL_VERSION := 1.35.4
-# renovate: datasource=github-releases depName=helm/helm
-HELM_VERSION := 4.1.4
 # renovate: datasource=docker depName=plantuml/plantuml
 PLANTUML_VERSION := 1.2026.2
 # renovate: datasource=docker depName=minlag/mermaid-cli
@@ -52,10 +54,8 @@ DIAGRAM_OUT := $(patsubst $(DIAGRAM_DIR)/%.puml,$(DIAGRAM_DIR)/out/%.png,$(DIAGR
 # === KinD cluster ===
 KIND_CLUSTER_NAME := $(APP_NAME)
 KIND_CONTEXT := kind-$(KIND_CLUSTER_NAME)
-KUBECTL_BIN := $(HOME)/.local/bin/kubectl
-HELM_BIN := $(HOME)/.local/bin/helm
-KUBECTL := $(KUBECTL_BIN) --context $(KIND_CONTEXT)
-HELM := $(HELM_BIN) --kube-context $(KIND_CONTEXT)
+KUBECTL := kubectl --context $(KIND_CONTEXT)
+HELM := helm --kube-context $(KIND_CONTEXT)
 # Space-separated list of services (matches Maven module dirs and k8s/ filenames)
 SERVICES := pizza-store pizza-kitchen pizza-delivery
 # Local image tag used by kind-deploy (overrides the ghcr.io/andriykalashnykov/
@@ -110,81 +110,6 @@ deps-maven:
 		mkdir -p $(HOME)/.local/bin; \
 		ln -sf "$(HOME)/.local/apache-maven-$(MAVEN_VERSION)/bin/mvn" "$(HOME)/.local/bin/mvn"; \
 	}
-
-#deps-act: @ Install act for local CI testing
-deps-act:
-	@command -v act >/dev/null 2>&1 || { echo "Installing act $(ACT_VERSION)..."; \
-		mkdir -p $(HOME)/.local/bin; \
-		curl -sSfL https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b $(HOME)/.local/bin v$(ACT_VERSION); \
-	}
-
-#deps-trivy: @ Install Trivy for security scanning
-deps-trivy:
-	@test -x $(HOME)/.local/bin/trivy || { echo "Installing trivy $(TRIVY_VERSION)..."; \
-		mkdir -p $(HOME)/.local/bin; \
-		curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $(HOME)/.local/bin v$(TRIVY_VERSION); \
-	}
-
-#deps-gitleaks: @ Install gitleaks for secret scanning
-deps-gitleaks:
-	@test -x $(HOME)/.local/bin/gitleaks || { echo "Installing gitleaks $(GITLEAKS_VERSION)..."; \
-		mkdir -p $(HOME)/.local/bin; \
-		TMPDIR=$$(mktemp -d); \
-		OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
-		ARCH=$$(uname -m); \
-		case "$$ARCH" in x86_64) ARCH=x64;; aarch64|arm64) ARCH=arm64;; esac; \
-		curl -sSfL -o $$TMPDIR/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v$(GITLEAKS_VERSION)/gitleaks_$(GITLEAKS_VERSION)_$${OS}_$${ARCH}.tar.gz"; \
-		tar -xzf $$TMPDIR/gitleaks.tar.gz -C $$TMPDIR gitleaks; \
-		mv $$TMPDIR/gitleaks $(HOME)/.local/bin/gitleaks; \
-		chmod +x $(HOME)/.local/bin/gitleaks; \
-		rm -rf $$TMPDIR; \
-	}
-
-#deps-kind: @ Install KinD binary to ~/.local/bin (pinned to $(KIND_VERSION))
-deps-kind:
-	@mkdir -p $(HOME)/.local/bin
-	@if ! test -x $(HOME)/.local/bin/kind || ! $(HOME)/.local/bin/kind version 2>/dev/null | grep -q "v$(KIND_VERSION)"; then \
-		echo "Installing kind v$(KIND_VERSION)..."; \
-		OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
-		ARCH=$$(uname -m); \
-		case "$$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; esac; \
-		curl -sSfL -o $(HOME)/.local/bin/kind \
-			"https://kind.sigs.k8s.io/dl/v$(KIND_VERSION)/kind-$${OS}-$${ARCH}"; \
-		chmod +x $(HOME)/.local/bin/kind; \
-	fi
-	@$(HOME)/.local/bin/kind version
-
-#deps-kubectl: @ Install kubectl to ~/.local/bin (pinned to $(KUBECTL_VERSION))
-deps-kubectl:
-	@mkdir -p $(HOME)/.local/bin
-	@if ! test -x $(KUBECTL_BIN) || ! $(KUBECTL_BIN) version --client 2>/dev/null | grep -q "v$(KUBECTL_VERSION)"; then \
-		echo "Installing kubectl v$(KUBECTL_VERSION)..."; \
-		OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
-		ARCH=$$(uname -m); \
-		case "$$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; esac; \
-		curl -sSfL -o $(KUBECTL_BIN) \
-			"https://dl.k8s.io/release/v$(KUBECTL_VERSION)/bin/$${OS}/$${ARCH}/kubectl"; \
-		chmod +x $(KUBECTL_BIN); \
-	fi
-	@$(KUBECTL_BIN) version --client | head -1
-
-#deps-helm: @ Install helm to ~/.local/bin (pinned to $(HELM_VERSION))
-deps-helm:
-	@mkdir -p $(HOME)/.local/bin
-	@if ! test -x $(HELM_BIN) || ! $(HELM_BIN) version --short 2>/dev/null | grep -q "v$(HELM_VERSION)"; then \
-		echo "Installing helm v$(HELM_VERSION)..."; \
-		OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
-		ARCH=$$(uname -m); \
-		case "$$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; esac; \
-		TMPDIR=$$(mktemp -d); \
-		curl -sSfL -o $$TMPDIR/helm.tgz \
-			"https://get.helm.sh/helm-v$(HELM_VERSION)-$${OS}-$${ARCH}.tar.gz"; \
-		tar -xzf $$TMPDIR/helm.tgz -C $$TMPDIR; \
-		mv $$TMPDIR/$${OS}-$${ARCH}/helm $(HELM_BIN); \
-		rm -rf $$TMPDIR; \
-		chmod +x $(HELM_BIN); \
-	fi
-	@$(HELM_BIN) version --short
 
 #deps-gjf: @ Download google-java-format jar
 deps-gjf: $(GJF_JAR)
@@ -248,17 +173,17 @@ format-check: deps-check $(GJF_JAR)
 			-jar $(GJF_JAR) --set-exit-if-changed --dry-run > /dev/null
 
 #trivy-fs: @ Scan filesystem for HIGH/CRITICAL vulnerabilities, secrets, and misconfigurations
-trivy-fs: deps-trivy
-	@$(HOME)/.local/bin/trivy fs --severity HIGH,CRITICAL --exit-code 1 .
+trivy-fs:
+	@trivy fs --severity HIGH,CRITICAL --exit-code 1 .
 
 #trivy-config: @ Scan K8s manifests for security misconfigurations (KSV-*)
-trivy-config: deps-trivy
-	@$(HOME)/.local/bin/trivy config --severity HIGH,CRITICAL --exit-code 1 k8s/
-	@$(HOME)/.local/bin/trivy config --severity HIGH,CRITICAL --exit-code 1 k8s-dapr-shared/
+trivy-config:
+	@trivy config --severity HIGH,CRITICAL --exit-code 1 k8s/
+	@trivy config --severity HIGH,CRITICAL --exit-code 1 k8s-dapr-shared/
 
 #secrets: @ Scan for leaked secrets with gitleaks
-secrets: deps-gitleaks
-	@$(HOME)/.local/bin/gitleaks detect --source . --verbose --redact
+secrets:
+	@gitleaks detect --source . --verbose --redact
 
 #deps-prune: @ Analyze Maven dependencies (advisory)
 deps-prune: deps-check
@@ -329,7 +254,7 @@ run: build
 ci: clean deps static-check test integration-test build coverage-check
 
 #ci-run: @ Run GitHub Actions workflow locally using act (jobs serialized)
-ci-run: deps-act
+ci-run: deps
 	@# Prune stale containers first — Docker's overlayfs can hit a race
 	@# (moby/moby#49228) where a leftover container's RWLayer is nil,
 	@# producing exit 137 that looks like OOM but is a daemon bug.
@@ -354,17 +279,29 @@ ci-run: deps-act
 	@#
 	@# Random artifact-server port + per-run tmpdir so concurrent
 	@# `make ci-run` invocations across repos don't race on act's default.
+	@#
+	@# Synthetic event payload: act push events do NOT populate
+	@# `repository.default_branch` or `event.before`, both of which
+	@# `dorny/paths-filter` requires to compute the diff. Provide them so
+	@# the `changes` job resolves and downstream gated jobs run as on real CI.
 	@ACT_PORT=$$(shuf -i 40000-59999 -n 1); \
 	ARTIFACT_PATH=$$(mktemp -d -t act-artifacts.XXXXXX); \
-	for j in static-check build test integration-test; do \
+	EVENT_PATH=$$(mktemp -t act-event.XXXXXX.json); \
+	BEFORE=$$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD); \
+	HEAD=$$(git rev-parse HEAD); \
+	printf '{"repository":{"default_branch":"main","name":"%s","owner":{"login":"%s"}},"before":"%s","after":"%s","ref":"refs/heads/main","pusher":{"name":"local"}}' \
+		"$(APP_NAME)" "local" "$$BEFORE" "$$HEAD" > "$$EVENT_PATH"; \
+	for j in changes static-check build test integration-test; do \
 		echo ""; \
 		echo "============================================================"; \
 		echo "  act push --job $$j"; \
 		echo "============================================================"; \
 		act push --job $$j --container-architecture linux/amd64 \
+			--eventpath "$$EVENT_PATH" \
 			--artifact-server-port "$$ACT_PORT" \
 			--artifact-server-path "$$ARTIFACT_PATH" || exit 1; \
-	done
+	done; \
+	rm -f "$$EVENT_PATH"
 
 #cve-check: @ OWASP dependency vulnerability scan
 cve-check: deps-check
@@ -379,7 +316,7 @@ coverage-generate: deps-check
 	@mvn -B verify -P integration-test -Ddependency-check.skip=true jacoco:report
 
 #coverage-check: @ Verify merged coverage meets minimum threshold (>=80%)
-coverage-check: deps-check
+coverage-check: coverage-generate
 	@mvn -B jacoco:check
 
 #coverage-open: @ Open code coverage report
@@ -399,19 +336,13 @@ update-deps: print-deps-updates
 	@mvn -B versions:use-latest-releases versions:commit
 
 #renovate-validate: @ Validate Renovate configuration
-renovate-validate:
-	@if ! command -v node >/dev/null 2>&1; then \
-		if command -v mise >/dev/null 2>&1; then \
-			mise exec -- npx --yes renovate --platform=local; \
-		else \
-			echo "Error: node is required. Run 'make deps' to install via mise."; \
-			exit 1; \
-		fi; \
-	else \
-		npx --yes renovate --platform=local; \
-	fi
+renovate-validate: deps
+	@npx --yes renovate --platform=local
 
 #image-build: @ Build OCI images for all services via spring-boot:build-image (tag $(E2E_IMAGE_TAG))
+# Note: no `build` prerequisite — spring-boot:build-image is self-contained
+# (compiles + packages the jar in-process before assembling the OCI image),
+# so a separate `build` step would only duplicate work.
 image-build: deps-check
 	@for svc in $(SERVICES); do \
 		echo "--- Building image for $$svc ---"; \
@@ -423,7 +354,7 @@ image-build: deps-check
 	done
 
 #image-scan: @ Scan built OCI images for HIGH/CRITICAL CVEs (covers Paketo base layers — Renovate blind spot)
-image-scan: image-build deps-trivy
+image-scan: image-build
 	@# spring-boot:build-image uses Paketo CNB builders; the resulting image
 	@# layers (JRE + base OS) are NOT visible to `trivy-fs` (which scans the
 	@# workspace) or `cve-check` (which scans Maven deps). Scanning the built
@@ -431,7 +362,7 @@ image-scan: image-build deps-trivy
 	@# (only advisories with an available patch fail the build).
 	@for svc in $(SERVICES); do \
 		echo "--- Scanning image $$svc:$(E2E_IMAGE_TAG) ---"; \
-		$(HOME)/.local/bin/trivy image \
+		trivy image \
 			--severity HIGH,CRITICAL \
 			--ignore-unfixed \
 			--exit-code 1 \
@@ -441,7 +372,7 @@ image-scan: image-build deps-trivy
 	done
 
 #kind-create: @ Create KinD cluster, start cloud-provider-kind LB controller, install Dapr via Helm
-kind-create: deps-kind deps-kubectl deps-helm
+kind-create: deps-check
 	@# Preflight: warn if sibling KinD clusters share the default `kind` Docker
 	@# bridge network. Their kube-proxies both DNAT 10.96.0.1:443 (in-cluster
 	@# API ClusterIP) → their own API server, and the rule sets collide on the
@@ -460,11 +391,11 @@ kind-create: deps-kind deps-kubectl deps-helm
 		echo "      kind delete cluster --name <name>"; \
 		echo ""; \
 	fi
-	@if $(HOME)/.local/bin/kind get clusters 2>/dev/null | grep -q "^$(KIND_CLUSTER_NAME)$$"; then \
+	@if kind get clusters 2>/dev/null | grep -q "^$(KIND_CLUSTER_NAME)$$"; then \
 		echo "KinD cluster $(KIND_CLUSTER_NAME) already exists; reusing."; \
 	else \
 		echo "Creating KinD cluster $(KIND_CLUSTER_NAME) with image $(KIND_NODE_IMAGE)..."; \
-		$(HOME)/.local/bin/kind create cluster \
+		kind create cluster \
 			--name $(KIND_CLUSTER_NAME) \
 			--image $(KIND_NODE_IMAGE) \
 			--config k8s/kind-config.yaml \
@@ -495,7 +426,7 @@ kind-create: deps-kind deps-kubectl deps-helm
 kind-deploy: kind-create image-build image-scan
 	@echo "--- Loading images into KinD cluster ---"
 	@for svc in $(SERVICES); do \
-		$(HOME)/.local/bin/kind load docker-image $$svc:$(E2E_IMAGE_TAG) \
+		kind load docker-image $$svc:$(E2E_IMAGE_TAG) \
 			--name $(KIND_CLUSTER_NAME); \
 	done
 	@echo "--- Deploying Redis (backs Dapr pubsub + state store for e2e) ---"
@@ -532,7 +463,7 @@ kind-deploy: kind-create image-build image-scan
 	echo "FAIL: pizza-store did not get a LoadBalancer IP"; exit 1
 
 #kind-undeploy: @ Remove app and Dapr components from KinD cluster
-kind-undeploy: deps-kubectl
+kind-undeploy: deps-check
 	@for svc in $(SERVICES); do \
 		$(KUBECTL) delete -f k8s/$$svc.yaml --ignore-not-found 2>/dev/null || true; \
 	done
@@ -541,9 +472,9 @@ kind-undeploy: deps-kubectl
 	@$(KUBECTL) delete -f k8s/redis-e2e.yaml --ignore-not-found 2>/dev/null || true
 
 #kind-destroy: @ Delete the KinD cluster and stop cloud-provider-kind
-kind-destroy: deps-kind
+kind-destroy: deps-check
 	@docker rm -f cloud-provider-kind 2>/dev/null || true
-	@$(HOME)/.local/bin/kind delete cluster --name $(KIND_CLUSTER_NAME) 2>/dev/null || true
+	@kind delete cluster --name $(KIND_CLUSTER_NAME) 2>/dev/null || true
 
 #kind-up: @ Alias for kind-create + kind-deploy (full stack up)
 kind-up: kind-deploy
@@ -595,12 +526,11 @@ release: pre-release
 	@git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
 	@echo "Release tag v$(VERSION) created. Push with: git push origin v$(VERSION)"
 
-.PHONY: help deps deps-check deps-maven deps-act deps-trivy deps-gitleaks deps-gjf \
-	deps-kind deps-kubectl deps-helm \
+.PHONY: help deps deps-check deps-maven deps-gjf \
 	env-check clean build test integration-test lint format format-check \
 	trivy-fs trivy-config secrets deps-prune deps-prune-check static-check run \
 	ci ci-run cve-check coverage-generate coverage-check coverage-open \
 	print-deps-updates update-deps renovate-validate \
-	image-build image-scan mirror-images kind-create kind-deploy kind-undeploy kind-destroy \
+	image-build image-scan kind-create kind-deploy kind-undeploy kind-destroy \
 	kind-up kind-down e2e pre-release release \
 	diagrams diagrams-clean diagrams-check mermaid-lint
