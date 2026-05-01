@@ -5,3 +5,15 @@ java = "temurin-21.0.10+7.0.LTS"
 maven = "3.9.15"
 # renovate: datasource=node-version depName=node
 node = "22.22.2"
+# renovate: datasource=github-releases depName=nektos/act
+act = "0.2.87"
+# renovate: datasource=github-releases depName=aquasecurity/trivy
+trivy = "0.70.0"
+# renovate: datasource=github-releases depName=gitleaks/gitleaks
+gitleaks = "8.30.1"
+# renovate: datasource=github-releases depName=kubernetes-sigs/kind
+kind = "0.31.0"
+# renovate: datasource=github-releases depName=kubernetes/kubernetes
+kubectl = "1.35.4"
+# renovate: datasource=github-releases depName=helm/helm
+helm = "4.1.4"

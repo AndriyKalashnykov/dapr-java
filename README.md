@@ -5,9 +5,7 @@
 
 # Pizza on Dapr — Spring Boot 4 Microservices Reference
 
-Reference implementation of a three-service Java microservice platform on [Dapr](https://dapr.io), demonstrating PubSub, State Store, and Service Invocation building blocks with [Spring Boot 4](https://spring.io/projects/spring-boot) and [Testcontainers](https://testcontainers.com). Deployable on any Kubernetes cluster or runnable locally with Docker.
-
-[Quarkus implementation available here (Thanks to @mcruzdev1!)](https://github.com/mcruzdev/pizza-quarkus)
+Reference implementation of a three-service Java microservice platform on [Dapr](https://dapr.io), demonstrating PubSub, State Store, and Service Invocation building blocks with [Spring Boot 4](https://spring.io/projects/spring-boot) and [Testcontainers](https://testcontainers.com). Deployable on any Kubernetes cluster or run locally on KinD via `make kind-up`; integration tests use Testcontainers (no Dapr install required).
 
 ```mermaid
 C4Context
@@ -49,7 +47,7 @@ C4Context
 make deps          # install build dependencies via mise (reads .mise.toml)
 make build         # build project (skips tests)
 make test          # run unit tests (requires Docker)
-make run           # start the application
+make run           # start the application (dev only — needs a Dapr sidecar to serve orders end-to-end; see Kubernetes Deployment for the full stack)
 # Open http://localhost:8080
 ```
 
@@ -126,7 +124,7 @@ sequenceDiagram
   S->>C: WS ORDER_COMPLETED
 ```
 
-### Deployment
+### Deployment View
 
 <img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="800">
 
@@ -137,6 +135,26 @@ sequenceDiagram
 - PubSub and State Store components resolve to Redis for e2e (`k8s/components-e2e.yaml`) and to Kafka + PostgreSQL in production.
 
 Source files live in [`docs/diagrams/`](docs/diagrams/); regenerate the PNGs with `make diagrams`.
+
+## API
+
+The three services expose the following HTTP surface. Cross-service calls go through Dapr service invocation (`dapr-app-id` header); the WebSocket topic is broadcast to browsers by `pizza-store`.
+
+| Method | Path | Service | Purpose |
+|--------|------|---------|---------|
+| `POST` | `/order` | pizza-store | Place a new order; persists to the `kvstore` State Store and triggers downstream service invocation |
+| `GET` | `/order` | pizza-store | List orders held in the State Store |
+| `POST` | `/events` | pizza-store | CloudEvent subscriber (`Content-Type: application/cloudevents+json`); routes `ORDER_*` events to State Store updates and WebSocket broadcasts |
+| `PUT` | `/prepare` | pizza-kitchen | Receive an order via Dapr invoke; publishes `ORDER_IN_PREPARATION` and `ORDER_READY` to the `pubsub` component |
+| `PUT` | `/deliver` | pizza-delivery | Receive an order via Dapr invoke; publishes `ORDER_ON_ITS_WAY` (×3) and `ORDER_COMPLETED` |
+| `WS` | `/ws` → `/topic/events` | pizza-store | STOMP broker; clients subscribe to `/topic/events` for live order status |
+| `GET` | `/actuator/health` | all three | Spring Boot Actuator liveness/readiness probe |
+
+CloudEvents can be replayed locally against a running pizza-store using [`httpie`](https://httpie.io/):
+
+```bash
+http :8080/events Content-Type:application/cloudevents+json < pizza-store/event-in-prep.json
+```
 
 ## Testing
 
@@ -159,12 +177,6 @@ Three test layers are exposed:
 | Unit | `make test` | Surefire runs `**/*Test.java` against in-memory PubSub Dapr sidecars | ~30 s |
 | Integration | `make integration-test` | Failsafe runs `**/*IT.java`: `PizzaStoreStateStoreIT` (real `kvstore` round-trip), `KitchenInvocationIT` / `DeliveryInvocationIT` (service-invocation contract via WireMock), `WebSocketBroadcastIT` (STOMP broadcast of `ORDER_PLACED`) | ~1 min |
 | E2E | `make e2e` | KinD + cloud-provider-kind + Dapr Helm + `e2e/e2e-test.sh` asserts the full `store → kitchen → store → delivery → store` lifecycle reaches `Status.completed` through the LoadBalancer | ~2 min |
-
-Once the service is up, events from the Kitchen and Delivery services can be simulated by posting CloudEvents to the `/events` endpoint. Using [`httpie`](https://httpie.io/):
-
-```bash
-http :8080/events Content-Type:application/cloudevents+json < pizza-store/event-in-prep.json
-```
 
 ## Kubernetes Deployment
 
@@ -297,18 +309,14 @@ Run `make help` to see all available targets.
 
 ### Dependencies & Tools
 
+`mise` is the single source of truth for binary tools (Java, Maven, Node, kubectl, helm, kind, act, trivy, gitleaks). `make deps` invokes `mise install` against `.mise.toml` and verifies the resulting shims.
+
 | Target | Description |
 |--------|-------------|
 | `make deps` | Install build dependencies via mise (reads `.mise.toml`) |
 | `make deps-check` | Verify build dependencies are installed |
 | `make deps-maven` | Install Maven from Apache archives (CI fallback when mise unavailable) |
-| `make deps-act` | Install act |
-| `make deps-trivy` | Install Trivy |
-| `make deps-gitleaks` | Install gitleaks |
 | `make deps-gjf` | Download google-java-format jar |
-| `make deps-kind` | Install KinD binary |
-| `make deps-kubectl` | Install kubectl binary |
-| `make deps-helm` | Install helm binary |
 | `make env-check` | Show installed tool versions |
 
 ### Utilities
@@ -327,13 +335,15 @@ GitHub Actions runs on push to `main`, tags `v*`, pull requests, a weekly schedu
 
 | Job | Triggers | Depends on | Steps |
 |-----|----------|-----------|-------|
-| **static-check** | push, PR, tags | — | `make static-check` (format-check, Checkstyle, trivy-fs, trivy-config, gitleaks, diagrams-check, mermaid-lint); `fetch-depth: 0` so gitleaks can walk history |
-| **build** | push, PR, tags | `static-check` | `make build`; tag-gated artifact upload of `pizza-*/target/*.jar` |
-| **test** | push, PR, tags | `static-check` | `make test` (Surefire unit tests only — fast feedback) |
-| **integration-test** | push, PR, tags | `static-check` | `make coverage-generate` + `make coverage-check`; runs surefire + failsafe + merged-coverage gate; uploads JaCoCo report |
-| **cve-check** | tag push, weekly cron (Mon 06:00 UTC), `workflow_dispatch` | `build`, `test`, `integration-test` | `make cve-check` (OWASP dependency-check), NVD cache, HTML report upload |
-| **e2e** | push to `main`/tag, PR label `run-e2e`, `workflow_dispatch` | `build`, `test`, `integration-test` | `make deps-kind deps-kubectl deps-helm` + `make e2e`; collects pod logs + cluster events on failure |
-| **ci-pass** | always | all above | Gate job that fails if any needed job failed (required-status-check target) |
+| **changes** | push, PR, tags | — | `dorny/paths-filter` emits `code` (binary skip-everything-on-docs-only) and `e2e` (heavy KinD job gating) flags consumed by downstream jobs |
+| **static-check** | push, PR, tags (`code` flag) | `changes` | `make static-check` (format-check, Checkstyle, trivy-fs, trivy-config, gitleaks, diagrams-check, mermaid-lint); `fetch-depth: 0` so gitleaks can walk history |
+| **build** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make build`; tag-gated artifact upload of `pizza-*/target/*.jar` |
+| **test** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make test` (Surefire unit tests only — fast feedback) |
+| **integration-test** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make coverage-generate` + `make coverage-check`; runs surefire + failsafe + merged-coverage gate; uploads JaCoCo report |
+| **cve-check** | tag push, weekly cron (Mon 06:00 UTC), `workflow_dispatch` | `static-check` | `make cve-check` (OWASP dependency-check), NVD cache, HTML report upload |
+| **e2e** | push to `main`/tag, PR label `run-e2e` or `e2e` flag, `workflow_dispatch` | `changes`, `build`, `test` | `jdx/mise-action` installs kind/kubectl/helm/trivy/gitleaks via `mise`, then `make e2e`; collects pod logs + cluster events on failure |
+| **publish-images** | tag push only | `static-check`, `build`, `test`, `integration-test`, `e2e` | `make image-scan` builds + scans Paketo CNB images; tags and pushes `ghcr.io/<owner>/<repo>/pizza-*:<version>` and `:latest` |
+| **ci-pass** | always | all above | Gate job that fails if any needed job failed or was cancelled (required-status-check target) |
 
 ### Required Secrets and Variables
 
@@ -345,12 +355,16 @@ Set secrets via **Settings > Secrets and variables > Actions > New repository se
 
 [Renovate](https://docs.renovatebot.com/) keeps dependencies up to date with platform automerge enabled.
 
+## Contributing
+
+Contributions welcome — [open an issue](https://github.com/AndriyKalashnykov/dapr-java/issues) or submit a pull request.
+
+## Related Projects
+
+- Quarkus port: [pizza-quarkus](https://github.com/mcruzdev/pizza-quarkus) by @mcruzdev.
+
 ## Resources and References
 
 - [Dapr For Java Developers](https://dzone.com/articles/dapr-for-java-developers)
 - [Platform Engineering on Kubernetes Book](http://mng.bz/jjKP)
 - [Cloud Native Local Development with Dapr and Testcontainers](https://www.diagrid.io/blog/cloud-native-local-development)
-
-## Contributing
-
-Contributions welcome — [open an issue](https://github.com/AndriyKalashnykov/dapr-java/issues) or submit a pull request.

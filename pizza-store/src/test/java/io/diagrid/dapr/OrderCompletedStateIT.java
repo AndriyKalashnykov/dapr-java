@@ -28,16 +28,19 @@ import org.springframework.test.util.TestSocketUtils;
 import org.wiremock.integrations.testcontainers.WireMockContainer;
 
 /**
- * Integration test exercising the real Dapr state store round-trip. Uses an in-memory state store
- * and in-memory pub/sub component so events emitted by {@code PizzaStore#placeOrder} are accepted
- * by the sidecar. Kitchen / delivery service invocation is stubbed via WireMock — this IT is scoped
- * to state persistence, not service invocation.
+ * Integration test covering the ORDER_COMPLETED branch of {@link PizzaStore#receiveEvents}: when a
+ * CloudEvent of type {@code order-completed} arrives, the store must upsert the order with {@code
+ * Status.completed} so the subsequent {@code GET /order} reflects the terminal state.
+ *
+ * <p>The existing {@link PizzaStoreStateStoreIT} only exercises {@code POST /order} persistence;
+ * this IT closes the coverage gap on the second branch of {@code receiveEvents} (the first branch,
+ * ORDER_READY, is covered by {@link DeliveryInvocationIT}).
  */
 @SpringBootTest(
     classes = PizzaStoreAppTest.class,
     webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
 @ImportTestcontainers
-public class PizzaStoreStateStoreIT {
+public class OrderCompletedStateIT {
 
   // Allocate a free port at class-load time so DaprContainer's app channel
   // and Spring's embedded Tomcat agree on the port.
@@ -74,15 +77,16 @@ public class PizzaStoreStateStoreIT {
   }
 
   @Test
-  public void storesAndRetrievesOrder() {
-    Order submitted =
+  public void orderCompletedEventTransitionsStatusToCompleted() {
+    // Place a fresh order so the state store has a row keyed on an id we control downstream.
+    Order placed =
         new Order(
-            new Customer("alice", "alice@example.com"),
-            Arrays.asList(new OrderItem(PizzaType.margherita, 2)));
+            new Customer("frank", "frank@example.com"),
+            Arrays.asList(new OrderItem(PizzaType.margherita, 1)));
 
     String orderId =
         with()
-            .body(submitted)
+            .body(placed)
             .contentType(ContentType.JSON)
             .when()
             .request("POST", "/order")
@@ -93,7 +97,48 @@ public class PizzaStoreStateStoreIT {
             .extract()
             .path("id");
 
-    // placeOrder persists asynchronously on a background thread; poll the state store.
+    // Confirm the order landed before posting the completion event.
+    await()
+        .atMost(Duration.ofSeconds(15))
+        .pollInterval(Duration.ofMillis(500))
+        .untilAsserted(
+            () -> get("/order").then().statusCode(200).body("orders.id", hasItem(orderId)));
+
+    // Post an ORDER_COMPLETED CloudEvent referencing the same order id. PizzaStore's
+    // receiveEvents handler should upsert the row with status=completed.
+    String completedEvent =
+        """
+        {
+            "specversion": "1.0",
+            "type": "com.dapr.event.sent",
+            "source": "delivery-service",
+            "data": {
+                "type": "order-completed",
+                "service": "delivery",
+                "message": "Your Order has been delivered.",
+                "order": {
+                    "customer": {"name": "frank", "email": "frank@example.com"},
+                    "items": [{"type": "margherita", "amount": 1}],
+                    "id": "%s",
+                    "orderDate": "2026-05-01T12:00:00.000+00:00",
+                    "status": "delivery"
+                }
+            }
+        }
+        """
+            .formatted(orderId);
+
+    with()
+        .body(completedEvent)
+        .contentType("application/cloudevents+json")
+        .when()
+        .request("POST", "/events")
+        .then()
+        .assertThat()
+        .statusCode(200);
+
+    // The state store write happens synchronously inside receiveEvents, but the response
+    // path serializes through Tomcat's worker pool — give it a brief poll window.
     await()
         .atMost(Duration.ofSeconds(15))
         .pollInterval(Duration.ofMillis(500))
@@ -104,56 +149,6 @@ public class PizzaStoreStateStoreIT {
                     .assertThat()
                     .statusCode(200)
                     .body("orders.id", hasItem(orderId))
-                    .body("orders.customer.name", hasItem("alice"))
-                    .body("orders.customer.email", hasItem("alice@example.com")));
-  }
-
-  @Test
-  public void persistsMultipleOrders() {
-    Order order1 =
-        new Order(
-            new Customer("dave", "dave@example.com"),
-            Arrays.asList(new OrderItem(PizzaType.vegetarian, 3)));
-    Order order2 =
-        new Order(
-            new Customer("erin", "erin@example.com"),
-            Arrays.asList(new OrderItem(PizzaType.margherita, 2)));
-
-    String firstId =
-        with()
-            .body(order1)
-            .contentType(ContentType.JSON)
-            .when()
-            .request("POST", "/order")
-            .then()
-            .assertThat()
-            .statusCode(200)
-            .extract()
-            .path("id");
-    String secondId =
-        with()
-            .body(order2)
-            .contentType(ContentType.JSON)
-            .when()
-            .request("POST", "/order")
-            .then()
-            .assertThat()
-            .statusCode(200)
-            .extract()
-            .path("id");
-
-    await()
-        .atMost(Duration.ofSeconds(15))
-        .pollInterval(Duration.ofMillis(500))
-        .untilAsserted(
-            () ->
-                get("/order")
-                    .then()
-                    .assertThat()
-                    .statusCode(200)
-                    .body("orders.id", hasItem(firstId))
-                    .body("orders.id", hasItem(secondId))
-                    .body("orders.customer.name", hasItem("dave"))
-                    .body("orders.customer.name", hasItem("erin")));
+                    .body("orders.status", hasItem("completed")));
   }
 }

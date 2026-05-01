@@ -15,22 +15,30 @@ import java.util.Arrays;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.util.TestSocketUtils;
 import org.wiremock.integrations.testcontainers.WireMockContainer;
 
 @SpringBootTest(
     classes = PizzaStoreAppTest.class,
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
 @ImportTestcontainers
 public class PizzaStoreTest {
+
+  // Allocate a free port at class-load time so this test can run in parallel
+  // with other DEFINED_PORT tests (e.g. on the same host when act runs the
+  // `test` and `integration-test` workflow jobs concurrently). Both
+  // DaprContainer's app channel and Spring's embedded Tomcat bind to
+  // APP_PORT — eliminates the latent mismatch where the sidecar was told
+  // 8080 but Spring landed on a random port.
+  private static final int APP_PORT = TestSocketUtils.findAvailableTcpPort();
 
   static DaprContainer dapr =
       new DaprContainer(DaprContainer.getDefaultImageName())
           .withAppName("local-dapr-app")
-          .withAppPort(8080)
+          .withAppPort(APP_PORT)
           .withAppChannelAddress("host.testcontainers.internal")
           .withExtraHost("host.testcontainers.internal", "host-gateway");
 
@@ -41,6 +49,7 @@ public class PizzaStoreTest {
 
   @DynamicPropertySource
   static void daprProperties(DynamicPropertyRegistry registry) {
+    registry.add("server.port", () -> APP_PORT);
     registry.add("dapr.grpc.port", dapr::getGrpcPort);
     registry.add("dapr.http.port", dapr::getHttpPort);
     registry.add("DAPR_HTTP_ENDPOINT", wireMock::getBaseUrl);
@@ -50,13 +59,7 @@ public class PizzaStoreTest {
   void setSystemProperties() {
     System.setProperty("dapr.grpc.port", String.valueOf(dapr.getGrpcPort()));
     System.setProperty("dapr.http.port", String.valueOf(dapr.getHttpPort()));
-  }
-
-  @LocalServerPort private int port;
-
-  @BeforeEach
-  public void setUp() {
-    RestAssured.port = port;
+    RestAssured.port = APP_PORT;
   }
 
   @Test

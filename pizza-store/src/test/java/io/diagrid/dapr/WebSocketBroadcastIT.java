@@ -24,7 +24,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
@@ -33,6 +32,7 @@ import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.util.TestSocketUtils;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 import org.wiremock.integrations.testcontainers.WireMockContainer;
@@ -44,14 +44,19 @@ import org.wiremock.integrations.testcontainers.WireMockContainer;
  */
 @SpringBootTest(
     classes = PizzaStoreAppTest.class,
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
 @ImportTestcontainers
 public class WebSocketBroadcastIT {
+
+  // Allocate a free port at class-load time so DaprContainer's app channel
+  // and Spring's embedded Tomcat agree on the port. The WebSocket STOMP
+  // client also needs to know the port — connects via ws://localhost:APP_PORT/ws.
+  private static final int APP_PORT = TestSocketUtils.findAvailableTcpPort();
 
   static DaprContainer dapr =
       new DaprContainer(DaprContainer.getDefaultImageName())
           .withAppName("local-dapr-app")
-          .withAppPort(8080)
+          .withAppPort(APP_PORT)
           .withAppChannelAddress("host.testcontainers.internal")
           .withExtraHost("host.testcontainers.internal", "host-gateway")
           .withComponent(new Component("kvstore", "state.in-memory", "v1", Collections.emptyMap()))
@@ -65,6 +70,7 @@ public class WebSocketBroadcastIT {
 
   @DynamicPropertySource
   static void daprProperties(DynamicPropertyRegistry registry) {
+    registry.add("server.port", () -> APP_PORT);
     registry.add("dapr.grpc.port", dapr::getGrpcPort);
     registry.add("dapr.http.port", dapr::getHttpPort);
     registry.add("DAPR_HTTP_ENDPOINT", wireMock::getBaseUrl);
@@ -74,13 +80,7 @@ public class WebSocketBroadcastIT {
   void setSystemProperties() {
     System.setProperty("dapr.grpc.port", String.valueOf(dapr.getGrpcPort()));
     System.setProperty("dapr.http.port", String.valueOf(dapr.getHttpPort()));
-  }
-
-  @LocalServerPort private int port;
-
-  @BeforeEach
-  public void setUp() {
-    RestAssured.port = port;
+    RestAssured.port = APP_PORT;
   }
 
   @Test
@@ -90,7 +90,7 @@ public class WebSocketBroadcastIT {
 
     BlockingQueue<Map<String, Object>> received = new LinkedBlockingQueue<>();
 
-    String url = "ws://localhost:" + port + "/ws";
+    String url = "ws://localhost:" + APP_PORT + "/ws";
     StompSession session =
         stompClient
             .connectAsync(url, new StompSessionHandlerAdapter() {})
