@@ -181,6 +181,19 @@ trivy-config:
 	@trivy config --severity HIGH,CRITICAL --exit-code 1 k8s/
 	@trivy config --severity HIGH,CRITICAL --exit-code 1 k8s-dapr-shared/
 
+#k8s-validate: @ Validate k8s/ and k8s-dapr-shared/ manifests against vendored OpenAPI (kubeconform)
+# k8s-dapr-shared is an alternate "shared sidecar" topology that is NOT
+# exercised by `make e2e`. Without this gate, drift between the two manifest
+# trees ships silently and only surfaces on a manual `kubectl apply -f
+# k8s-dapr-shared/`. kubeconform validates against vendored OpenAPI schemas,
+# so no cluster is required — wires cleanly into static-check on every push.
+# -ignore-missing-schemas tolerates Dapr CRDs (Component, Subscription)
+# whose schemas aren't in the upstream master-standalone bundle.
+k8s-validate:
+	@command -v kubeconform >/dev/null 2>&1 || { echo "Error: kubeconform is required (run 'mise install')."; exit 1; }
+	@kubeconform -strict -ignore-missing-schemas -summary k8s/
+	@kubeconform -strict -ignore-missing-schemas -summary k8s-dapr-shared/
+
 #secrets: @ Scan for leaked secrets with gitleaks
 secrets:
 	@gitleaks detect --source . --verbose --redact
@@ -242,8 +255,8 @@ mermaid-lint:
 			> /dev/null || { echo "FAIL: Mermaid lint failed in $$f"; exit 1; }; \
 	done
 
-#static-check: @ Composite quality gate (format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint)
-static-check: format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint
+#static-check: @ Composite quality gate (format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate)
+static-check: format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint k8s-validate
 	@echo "All static checks passed"
 
 #run: @ Run the application
@@ -474,6 +487,37 @@ kind-deploy: kind-create image-build image-scan
 	done; \
 	echo "FAIL: pizza-store did not get a LoadBalancer IP"; exit 1
 
+#k8s-shared-deploy: @ Deploy alternate "shared sidecar" topology (k8s-dapr-shared/) to running cluster
+# Manual target — NOT wired into `make e2e` or CI. Use after `make kind-create`
+# to validate the alternate topology end-to-end. The pizza-store LoadBalancer
+# Service is the same shape as the default topology, so e2e/e2e-test.sh runs
+# against it unchanged. See k8s-dapr-shared/README.md for the topology rationale.
+k8s-shared-deploy: deps-check
+	@echo "--- Loading images into KinD cluster (if not present) ---"
+	@for svc in $(SERVICES); do \
+		kind load docker-image $$svc:$(E2E_IMAGE_TAG) --name $(KIND_CLUSTER_NAME) 2>&1 | tail -1; \
+	done
+	@echo "--- Deploying Redis (backs Dapr pubsub + state store) ---"
+	@$(KUBECTL) apply -f k8s/redis-e2e.yaml
+	@$(KUBECTL) rollout status deployment/redis --timeout=120s
+	@echo "--- Applying Dapr components (redis-backed) + subscriptions ---"
+	@$(KUBECTL) apply -f k8s/components-e2e.yaml
+	@$(KUBECTL) apply -f k8s/subscription.yaml
+	@echo "--- Applying shared-sidecar app manifests (with local image overrides) ---"
+	@sed -E "s|image: ghcr.io/andriykalashnykov/dapr-java/(pizza-(store|kitchen|delivery)):[^[:space:]]+|image: \\1:$(E2E_IMAGE_TAG)|g; \
+		s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|" \
+		k8s-dapr-shared/apps.yaml | $(KUBECTL) apply -f -
+	@echo "--- Patching pizza-store Service to LoadBalancer ---"
+	@$(KUBECTL) patch svc pizza-store -p '{"spec":{"type":"LoadBalancer"}}' 2>/dev/null || true
+	@echo "Shared-sidecar topology deployed. Validate with e2e/e2e-test.sh against the LoadBalancer IP."
+
+#k8s-shared-undeploy: @ Remove the alternate shared-sidecar topology from the cluster
+k8s-shared-undeploy: deps-check
+	@$(KUBECTL) delete -f k8s-dapr-shared/apps.yaml --ignore-not-found 2>/dev/null || true
+	@$(KUBECTL) delete -f k8s/subscription.yaml --ignore-not-found 2>/dev/null || true
+	@$(KUBECTL) delete -f k8s/components-e2e.yaml --ignore-not-found 2>/dev/null || true
+	@$(KUBECTL) delete -f k8s/redis-e2e.yaml --ignore-not-found 2>/dev/null || true
+
 #kind-undeploy: @ Remove app and Dapr components from KinD cluster
 kind-undeploy: deps-check
 	@for svc in $(SERVICES); do \
@@ -516,21 +560,13 @@ e2e: kind-up
 
 #pre-release: @ Run every slow gate that's NOT in `make ci` (cve-check + image-scan). Required before `make release`.
 pre-release:
-	@# cve-check is advisory pending the upstream NVD deserializer bug
-	@# (dependency-check/DependencyCheck issue, tracked in CLAUDE.md). Mirrors
-	@# the CI workflow's `continue-on-error: true` on the same step.
-	@#
-	@# Wrap in `timeout 300` to bound the hang: when the NVD API returns
-	@# 9-digit nanosecond timestamps the mvn dep-check plugin can spin in
-	@# an internal retry loop for 20+ min without exiting non-zero, which
-	@# means the `||` soft-fail never fires. Observed locally during the
-	@# first v0.1.0 `make release` — burned 22 min before SIGTERM. 300s is
-	@# enough for a warm NVD cache + API key, and short enough not to
-	@# block ship. When upstream fixes the deserializer, drop the wrapper.
-	@timeout 300 $(MAKE) cve-check || echo "WARN: cve-check failed or timed out after 5 min — see CLAUDE.md backlog (OWASP NVD deserializer bug). Continuing pre-release."
-	@# image-scan is the hard gate that caught Paketo CVEs post-push before.
+	@# cve-check + image-scan are both strict gates. dependency-check 12.2.2
+	@# (2026-05-03) ships the open-vulnerability-clients fix for the NVD
+	@# 9-digit nanosecond timestamp deserializer bug (PR #8427), so the
+	@# previous `timeout 300` + soft-fail wrapper is no longer needed.
+	@$(MAKE) cve-check
 	@$(MAKE) image-scan
-	@echo "Pre-release gates passed (image-scan strict, cve-check advisory)."
+	@echo "Pre-release gates passed."
 
 #release: @ Create a release tag with semver validation (usage: make release VERSION=x.y.z)
 #          Runs `pre-release` first so a failing OWASP or image scan blocks the
@@ -556,4 +592,5 @@ release: pre-release
 	print-deps-updates update-deps renovate-validate \
 	image-build image-scan kind-create kind-deploy kind-undeploy kind-destroy \
 	kind-up kind-down e2e pre-release release \
-	diagrams diagrams-clean diagrams-check mermaid-lint
+	diagrams diagrams-clean diagrams-check mermaid-lint k8s-validate \
+	k8s-shared-deploy k8s-shared-undeploy

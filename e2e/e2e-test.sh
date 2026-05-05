@@ -201,7 +201,55 @@ echo ""
 echo "=== Negative case ==="
 assert_status_in_range POST "$BASE/order" 400 499 'this is not json'
 
-# 6. OTel traceparent propagation (optional, soft check)
+# 6. WebSocket broadcast assertion (regression guard for the
+# PUBLIC_IP-hardcoded WS bug retired 2026-04-26). Subscribes a STOMP client
+# to /topic/events through the LB-exposed /ws endpoint, places a fresh
+# order, and asserts at least one MESSAGE frame arrives. Skipped when
+# `websocat` isn't on PATH (mise installs `cargo:websocat`; bare hosts
+# without mise won't have it — soft-skip rather than fail to keep the
+# script portable across local debugging contexts).
+echo ""
+echo "=== WebSocket broadcast assertion ==="
+if ! command -v websocat >/dev/null 2>&1; then
+  echo "SKIP: websocat not on PATH (run 'mise install' to provision it). Add 'cargo:websocat' is in .mise.toml."
+else
+  WS_LOG=$(mktemp)
+  # STOMP CONNECT then SUBSCRIBE; sleep keeps the connection open while the
+  # order placement triggers a broadcast. \x00 is the STOMP frame terminator.
+  {
+    printf 'CONNECT\naccept-version:1.2\nhost:%s\n\n\x00\n' "$GATEWAY_IP"
+    printf 'SUBSCRIBE\nid:sub-e2e\ndestination:/topic/events\n\n\x00\n'
+    sleep 25
+  } | websocat "ws://${GATEWAY_IP}:${GATEWAY_PORT}/ws" > "$WS_LOG" 2>&1 &
+  WS_PID=$!
+  sleep 1  # Let CONNECT/SUBSCRIBE land before triggering the broadcast.
+
+  WS_ORDER='{"customer":{"name":"ws-tester","email":"ws@example.com"},"items":[{"type":"margherita","amount":1}]}'
+  curl -sf --max-time 15 -H 'Content-Type: application/json' \
+    -d "$WS_ORDER" "$BASE/order" >/dev/null || true
+
+  # Wait up to 25s for at least one STOMP MESSAGE frame.
+  ws_seen=0
+  for _ in $(seq 1 25); do
+    if grep -q '^MESSAGE' "$WS_LOG" 2>/dev/null; then
+      ws_seen=1
+      break
+    fi
+    sleep 1
+  done
+
+  kill "$WS_PID" 2>/dev/null || true
+  wait "$WS_PID" 2>/dev/null || true
+
+  if (( ws_seen == 1 )); then
+    pass "WS broadcast received during order placement (regression guard for PUBLIC_IP/WS-URL bugs)"
+  else
+    fail "WS broadcast NOT received during order placement (last 30 lines of capture: $(tail -30 "$WS_LOG"))"
+  fi
+  rm -f "$WS_LOG"
+fi
+
+# 7. OTel traceparent propagation (optional, soft check)
 echo ""
 echo "=== OTel traceparent (optional) ==="
 HDRS=$(curl -s -D - -o /dev/null --max-time 10 "$BASE/actuator/health" || true)

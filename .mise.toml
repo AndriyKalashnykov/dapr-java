@@ -6,7 +6,7 @@ maven = "3.9.15"
 # renovate: datasource=node-version depName=node
 node = "22.22.2"
 # renovate: datasource=github-releases depName=nektos/act
-act = "0.2.87"
+act = "0.2.88"
 # renovate: datasource=github-releases depName=aquasecurity/trivy
 trivy = "0.70.0"
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
@@ -17,3 +17,16 @@ kind = "0.31.0"
 kubectl = "1.35.4"
 # renovate: datasource=github-releases depName=helm/helm
 helm = "4.1.4"
+# kubeconform validates k8s manifest YAML against vendored OpenAPI schemas
+# (no cluster needed). Used by `make k8s-validate` to gate every push on
+# both k8s/ and k8s-dapr-shared/ parsing cleanly.
+# renovate: datasource=github-releases depName=yannh/kubeconform
+kubeconform = "0.7.0"
+# websocat is a single-binary WebSocket client used by e2e/e2e-test.sh to
+# assert STOMP broadcast over the LB-exposed /ws endpoint (regression guard
+# for the PUBLIC_IP-hardcoded WebSocket bug retired 2026-04-26). Installed
+# via mise's aqua backend — precompiled GitHub release binary (instant on
+# both fresh laptops and CI cold runners; the cargo: backend would compile
+# from source for ~1-2 min on cold cache).
+# renovate: datasource=github-releases depName=vi/websocat
+"aqua:vi/websocat" = "1.14.1"

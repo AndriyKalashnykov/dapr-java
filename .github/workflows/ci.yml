@@ -95,10 +95,10 @@ jobs:
     - name: Install Maven
       run: make deps-maven
 
-    # mise provides trivy + gitleaks (pinned in .mise.toml) for the
-    # static-check composite gate (format-check, checkstyle, trivy-fs,
-    # trivy-config, secrets, diagrams-check, mermaid-lint). The act runner
-    # image has neither preinstalled.
+    # mise provides trivy, gitleaks, and kubeconform (pinned in .mise.toml)
+    # for the static-check composite gate (format-check, checkstyle, trivy-fs,
+    # trivy-config, secrets, diagrams-check, mermaid-lint, k8s-validate).
+    # The act runner image has none of them preinstalled.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
@@ -252,15 +252,11 @@ jobs:
         key: nvd-db-${{ hashFiles('pom.xml') }}
         restore-keys: nvd-db-
 
-    # Upstream bug: dependency-check 12.2.1's bundled open-vulnerability-client
-    # deserializer cannot parse the 9-digit nanosecond-precision timestamps the
-    # NVD API started returning ("Failed to deserialize java.time.ZonedDateTime
-    # ... unparsed text found at index 23"). Non-blocking until a fixed release
-    # ships upstream. HTML report still uploads when the step succeeds on a
-    # warm NVD cache. Track: dependency-check/DependencyCheck issues.
+    # dependency-check 12.2.2 (2026-05-03) ships the upstream fix for the
+    # NVD 9-digit nanosecond timestamp deserializer bug (PR #8427), so this
+    # step is back to strict — failures block the release flow as designed.
     - name: OWASP dependency check
       if: ${{ !env.ACT }}
-      continue-on-error: true
       env:
         NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
       run: make cve-check
@@ -323,6 +319,46 @@ jobs:
     - name: Run end-to-end tests
       run: make e2e
 
+    # DAST: ZAP baseline scan against the LB-exposed pizza-store. Runs only
+    # AFTER the assertion suite passes — keeps total e2e wall-clock predictable
+    # (ZAP baseline ~2 min) and avoids burning a full ZAP run on a broken
+    # cluster. Baseline scan is passive (no fuzzing, no destructive payloads),
+    # so safe to run against the live e2e LB. SARIF upload to the Security tab
+    # makes findings reviewable per-PR. continue-on-error: true keeps the e2e
+    # job from failing on advisory ZAP findings — promote to strict once the
+    # baseline is clean and a regression budget is set.
+    - name: Resolve LoadBalancer IP for ZAP scan
+      id: lb
+      run: |
+        IP=$(kubectl get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        echo "url=http://${IP}/" >> "$GITHUB_OUTPUT"
+
+    - name: ZAP baseline scan
+      uses: zaproxy/action-baseline@6c5a007541891231cd9e0ddec25d4f25c59c9874 # v0.15.0
+      continue-on-error: true
+      with:
+        target: ${{ steps.lb.outputs.url }}
+        # Standard baseline rules; cmd_options lets the action push a SARIF
+        # artifact upstream and a JSON report into the workflow run.
+        cmd_options: '-J zap-report.json -w zap-report.md'
+        fail_action: false
+        allow_issue_writing: false
+
+    - name: Upload ZAP baseline report
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      continue-on-error: true
+      with:
+        name: zap-baseline-report
+        path: |
+          zap-report.json
+          zap-report.md
+          report_html.html
+          report_md.md
+          report_json.json
+        retention-days: 14
+        if-no-files-found: ignore
+
     - name: Collect diagnostics on failure
       if: failure()
       run: |
@@ -348,31 +384,34 @@ jobs:
   #   GATE 1: Trivy image scan (CRITICAL/HIGH blocking, fixed-only).
   #   GATE 2: Spring Boot boot-marker smoke test (catches boot regressions
   #           Trivy can't see — missing classes, port binds, config errors).
-  #   GATE 3: cosign keyless OIDC signing post-push (Sigstore Fulcio).
-  # provenance: false / sbom: false: not applicable to Paketo CNB build path
-  # (no buildkit attestations emitted), so the GHCR Packages "OS / Arch" tab
-  # already renders correctly.
-  # Multi-arch is single-arch (linux/amd64) for now — Paketo CNB
-  # spring-boot:build-image runs only on the host's native arch. ARM
-  # consumers (Apple Silicon, Graviton) need either a runs-on:
-  # ubuntu-24.04-arm matrix runner + manifest assemble, or a thin Dockerfile
-  # + docker/build-push-action. Tracked in CLAUDE.md upgrade backlog.
-  # strategy.matrix runs each service in parallel on its own runner —
-  # wall-clock = max(per-service-time), not sum.
+  #   GATE 3: per-arch push to GHCR with `:<version>-<arch>` tag suffix.
+  # The downstream `docker-manifest` job then assembles a multi-arch
+  # manifest list under `:<version>` + `:latest` and cosign-signs the
+  # manifest digest (single signature covers both archs).
+  #
+  # provenance: false / sbom: false applies to the Paketo CNB build path
+  # (no buildkit attestations emitted) so the GHCR Packages "OS / Arch" tab
+  # renders correctly. spring-boot:build-image only builds the host arch —
+  # cross-build is not supported — so amd64/arm64 each get a native runner.
   docker:
     needs: [static-check, build, test, integration-test, cve-check, e2e]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write
-      id-token: write       # cosign keyless OIDC (Sigstore Fulcio)
     strategy:
       fail-fast: false      # one bad service shouldn't cancel the others'
-                            # in-flight scans/signs — collect all results
+                            # in-flight scans — collect all results
       matrix:
-        service: [pizza-store, pizza-kitchen, pizza-delivery]
+        include:
+          - { service: pizza-store,    arch: amd64, runner: ubuntu-latest      }
+          - { service: pizza-store,    arch: arm64, runner: ubuntu-24.04-arm   }
+          - { service: pizza-kitchen,  arch: amd64, runner: ubuntu-latest      }
+          - { service: pizza-kitchen,  arch: arm64, runner: ubuntu-24.04-arm   }
+          - { service: pizza-delivery, arch: amd64, runner: ubuntu-latest      }
+          - { service: pizza-delivery, arch: arm64, runner: ubuntu-24.04-arm   }
     env:
       REGISTRY: ghcr.io
 
@@ -411,12 +450,12 @@ jobs:
     # GATE 1+2: Build + Trivy image scan via existing make target.
     # SERVICES override scopes the loop to this matrix entry only — each
     # service builds + scans on its own runner in parallel. The matrix
-    # coordinate ($SVC) renders in the GitHub UI as `docker (pizza-store) /
-    # Build and scan image`, so the step name itself stays static.
+    # coordinate ($SVC) renders in the GitHub UI as `docker (pizza-store,
+    # amd64) / Build and scan image`, so the step name itself stays static.
     - name: Build and scan image
       run: make image-scan SERVICES='${{ matrix.service }}'
 
-    # GATE 3: Spring Boot boot-marker smoke test.
+    # GATE 3 of the per-arch flow: Spring Boot boot-marker smoke test.
     # Validates the image actually boots Spring Boot before publishing —
     # catches regressions Trivy and filesystem scans miss (missing classes,
     # port bind failures, broken auto-config). Pizza services depend on
@@ -455,8 +494,68 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build and push
-      id: push
+    - name: Push per-arch tag
+      env:
+        SVC: ${{ matrix.service }}
+        ARCH: ${{ matrix.arch }}
+        VERSION: ${{ steps.ver.outputs.version }}
+        OWNER: ${{ steps.ns.outputs.owner }}
+        REPO: ${{ steps.ns.outputs.repo }}
+      run: |
+        set -euo pipefail
+        # Repo-namespace (ghcr.io/<owner>/<repo>/<package>) — GITHUB_TOKEN
+        # can create new packages here on first push; user-namespace cannot.
+        src="${SVC}:e2e"
+        dst="${REGISTRY}/${OWNER}/${REPO}/${SVC}:${VERSION}-${ARCH}"
+        echo "--- ${src} → ${dst} ---"
+        docker tag "${src}" "${dst}"
+        docker push "${dst}"
+
+  # Assemble multi-arch manifest list per service and cosign-sign the
+  # manifest digest. Runs once after all per-arch pushes succeed. A single
+  # signature on the manifest covers every arch underneath — clearer Rekor
+  # trail than signing each per-arch image separately.
+  docker-manifest:
+    needs: docker
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      id-token: write       # cosign keyless OIDC (Sigstore Fulcio)
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [pizza-store, pizza-kitchen, pizza-delivery]
+    env:
+      REGISTRY: ghcr.io
+
+    steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+    - name: Set version from tag
+      id: ver
+      run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+    - name: Set lowercase image namespace
+      id: ns
+      run: |
+        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+        echo "owner=${OWNER}" >> "$GITHUB_OUTPUT"
+        echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
+
+    - name: Log in to GHCR
+      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Assemble multi-arch manifest
+      id: manifest
       env:
         SVC: ${{ matrix.service }}
         VERSION: ${{ steps.ver.outputs.version }}
@@ -464,28 +563,25 @@ jobs:
         REPO: ${{ steps.ns.outputs.repo }}
       run: |
         set -euo pipefail
-        # Use repo-namespace (ghcr.io/<owner>/<repo>/<package>) rather than
-        # user-namespace (ghcr.io/<owner>/<package>). GITHUB_TOKEN can CREATE
-        # new packages in the repo-namespace — GHCR auto-links them to this
-        # repo. In the user-namespace it cannot, resulting in
-        # `denied: permission_denied: write_package` on first push.
-        src="${SVC}:e2e"
-        dst_ver="${REGISTRY}/${OWNER}/${REPO}/${SVC}:${VERSION}"
-        dst_latest="${REGISTRY}/${OWNER}/${REPO}/${SVC}:latest"
-        echo "--- ${src} → ${dst_ver} + ${dst_latest} ---"
-        docker tag "${src}" "${dst_ver}"
-        docker tag "${src}" "${dst_latest}"
-        docker push "${dst_ver}"
-        docker push "${dst_latest}"
-        # Capture the manifest digest so cosign signs by digest, not by tag —
-        # the digest covers all tags pointing to it and produces a clearer
-        # Rekor trail than tag-based signing.
-        DIGEST=$(docker inspect --format '{{ index .RepoDigests 0 }}' "${dst_ver}" | sed 's/.*@//')
+        base="${REGISTRY}/${OWNER}/${REPO}/${SVC}"
+        amd64_ref="${base}:${VERSION}-amd64"
+        arm64_ref="${base}:${VERSION}-arm64"
+        ver_tag="${base}:${VERSION}"
+        latest_tag="${base}:latest"
+        # imagetools create stitches the per-arch refs into a manifest list
+        # and pushes both `:VERSION` and `:latest` pointing at the same
+        # digest. -t may be repeated to push multiple tags in one call.
+        docker buildx imagetools create \
+          -t "${ver_tag}" \
+          -t "${latest_tag}" \
+          "${amd64_ref}" \
+          "${arm64_ref}"
+        DIGEST=$(docker buildx imagetools inspect "${ver_tag}" --format '{{ .Manifest.Digest }}')
         echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
         {
           echo 'tags<<TAGS_EOF'
-          echo "${dst_ver}"
-          echo "${dst_latest}"
+          echo "${ver_tag}"
+          echo "${latest_tag}"
           echo 'TAGS_EOF'
         } >> "$GITHUB_OUTPUT"
 
@@ -494,10 +590,11 @@ jobs:
 
     # Keyless OIDC signing via Sigstore Fulcio — no key material to manage,
     # signature provenance recorded in the public Rekor transparency log.
+    # Sign the manifest-list digest: a single signature covers both archs.
     - name: Sign image with cosign
       env:
-        TAGS: ${{ steps.push.outputs.tags }}
-        DIGEST: ${{ steps.push.outputs.digest }}
+        TAGS: ${{ steps.manifest.outputs.tags }}
+        DIGEST: ${{ steps.manifest.outputs.digest }}
       run: |
         set -euo pipefail
         while IFS= read -r tag; do
@@ -508,16 +605,16 @@ jobs:
 
   ci-pass:
     if: always()
-    needs: [changes, static-check, build, test, integration-test, cve-check, e2e, docker]
+    needs: [changes, static-check, build, test, integration-test, cve-check, e2e, docker, docker-manifest]
     timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed
         run: |
-          # docker is tag-gated; treat its 'skipped' result on non-tag runs
-          # as a pass. Code-gated jobs (static-check/build/test/IT) are also
-          # legitimately 'skipped' on docs-only PRs. Any 'failure' or
-          # 'cancelled' result fails the gate.
+          # docker + docker-manifest are tag-gated; treat their 'skipped'
+          # result on non-tag runs as a pass. Code-gated jobs
+          # (static-check/build/test/IT) are also legitimately 'skipped' on
+          # docs-only PRs. Any 'failure' or 'cancelled' result fails the gate.
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
             echo "One or more required jobs failed"
             exit 1

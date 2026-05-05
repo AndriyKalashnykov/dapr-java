@@ -32,11 +32,11 @@
         <wiremock-testcontainers.version>1.0-alpha-15</wiremock-testcontainers.version>
         <wiremock.version>3.13.2</wiremock.version>
         <testcontainers-dapr.version>${dapr.version}</testcontainers-dapr.version>
-        <grpc.version>1.80.0</grpc.version>
+        <grpc.version>1.81.0</grpc.version>
         <protobuf-java.version>4.34.1</protobuf-java.version>
-        <tomcat.version>11.0.21</tomcat.version>
-        <jackson.version>3.1.2</jackson.version>
-        <jackson-bom.version>3.1.2</jackson-bom.version>
+        <tomcat.version>11.0.22</tomcat.version>
+        <jackson.version>3.1.3</jackson.version>
+        <jackson-bom.version>3.1.3</jackson-bom.version>
     </properties>
 
     <dependencyManagement>
@@ -270,7 +270,7 @@
                 <plugin>
                     <groupId>org.owasp</groupId>
                     <artifactId>dependency-check-maven</artifactId>
-                    <version>12.2.1</version>
+                    <version>12.2.2</version>
                     <configuration>
                         <failBuildOnCVSS>7</failBuildOnCVSS>
                         <skipProvidedScope>true</skipProvidedScope>

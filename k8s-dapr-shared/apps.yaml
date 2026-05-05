@@ -201,6 +201,10 @@ spec:
           value: http://pizza-store-dapr.default.svc.cluster.local:50001
         - name: STATE_STORE_NAME
           value: kvstore
+        # Maps to Spring placeholder ${cors.allowed-origins} read by @CrossOrigin
+        # in PizzaStore.java. Override per-environment.
+        - name: CORS_ALLOWED_ORIGINS
+          value: "http://localhost:5173"
         livenessProbe:
           httpGet:
             path: /actuator/health

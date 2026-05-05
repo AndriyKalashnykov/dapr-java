@@ -139,4 +139,72 @@ public class PizzaStoreTest {
 
     get("/order").then().assertThat().statusCode(200).body("orders", notNullValue());
   }
+
+  // POST /events with the wrong Content-Type must be rejected by the
+  // CloudEvents content-negotiation filter (consumes =
+  // "application/cloudevents+json"). Spring returns 415 Unsupported Media Type
+  // before the controller method runs.
+  @Test
+  public void testReceiveEventRejectsWrongContentType() {
+    String wellFormedCloudEvent =
+        """
+        {
+            "specversion": "1.0",
+            "type": "com.dapr.pizza.event",
+            "data": {
+                "type": "order-in-preparation",
+                "service": "kitchen",
+                "message": "x",
+                "order": {
+                    "customer": {"name": "c", "email": "c@c"},
+                    "items": [{"type": "pepperoni", "amount": 1}],
+                    "id": "test-415",
+                    "orderDate": "2023-10-31T18:13:55.571+00:00",
+                    "status": "inpreparation"
+                }
+            }
+        }
+        """;
+    with()
+        .body(wellFormedCloudEvent)
+        .contentType(ContentType.JSON) // application/json — not cloudevents+json
+        .when()
+        .request("POST", "/events")
+        .then()
+        .assertThat()
+        .statusCode(415);
+  }
+
+  // Malformed JSON body to /events must be rejected with 400 by Jackson's
+  // HttpMessageNotReadable handler before the @RestController method runs.
+  @Test
+  public void testReceiveEventRejectsMalformedBody() {
+    with()
+        .body("{ this is not json }")
+        .contentType("application/cloudevents+json")
+        .when()
+        .request("POST", "/events")
+        .then()
+        .assertThat()
+        .statusCode(400);
+  }
+
+  // Verify the externalised CORS allowed-origins placeholder resolves at
+  // request time. ${cors.allowed-origins:http://localhost:5173} on the
+  // @CrossOrigin annotation should populate Access-Control-Allow-Origin on
+  // the preflight response when the test container's default value is in use.
+  @Test
+  public void testCorsAllowedOriginsResolvesPlaceholder() {
+    with()
+        .header("Origin", "http://localhost:5173")
+        .header("Access-Control-Request-Method", "POST")
+        .when()
+        .request("OPTIONS", "/order")
+        .then()
+        .assertThat()
+        .statusCode(
+            org.hamcrest.Matchers.anyOf(
+                org.hamcrest.Matchers.is(200), org.hamcrest.Matchers.is(204)))
+        .header("Access-Control-Allow-Origin", "http://localhost:5173");
+  }
 }

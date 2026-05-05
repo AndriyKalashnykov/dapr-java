@@ -22,7 +22,8 @@ make trivy-config                       # Scan k8s/ and k8s-dapr-shared/ for KSV
 make secrets                            # Scan for leaked secrets (gitleaks)
 make deps-prune                         # Analyze Maven dependencies (advisory)
 make deps-prune-check                   # Fail if unused declared Maven dependencies exist
-make static-check                       # Composite: format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint
+make static-check                       # Composite: format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate
+make k8s-validate                       # Validate k8s/ + k8s-dapr-shared/ manifests via kubeconform (vendored OpenAPI, no cluster)
 make diagrams                           # Render docs/diagrams/*.puml → docs/diagrams/out/*.png (PlantUML in Docker)
 make diagrams-clean                     # Remove rendered PNGs
 make diagrams-check                     # Verify committed PNGs match .puml sources (static-check gate)
@@ -140,9 +141,9 @@ Permanent design rules and operational constraints. Each one is load-bearing —
 
 ### Release workflow
 
-- `make ci` deliberately omits `cve-check` and `image-scan` because both are slow and one is advisory. They run via `make pre-release` (auto-invoked by `make release`):
-  - `cve-check` is wrapped in `timeout 300` and `|| true`. The OWASP dependency-check plugin can spin 20+ min in an internal retry loop against the NVD deserializer bug without exiting non-zero, so the soft-fail `||` alone is not bounded. The HTML report uploads in CI when the warm NVD cache succeeds.
-  - `image-scan` is strict. It catches Paketo helper Go-stdlib CVEs that `trivy-fs` (workspace) and `cve-check` (Maven deps) both miss. `.trivyignore` documents currently-accepted Paketo-upstream CVEs with tracker URLs.
+- `make ci` deliberately omits `cve-check` and `image-scan` because both are slow. They run via `make pre-release` (auto-invoked by `make release`):
+  - Both gates are strict — the previous `timeout 300` + `|| true` workaround was removed when dependency-check 12.2.2 (2026-05-03) shipped the upstream fix for the NVD nanosecond-timestamp deserializer bug (PR #8427).
+  - `image-scan` catches Paketo helper Go-stdlib CVEs that `trivy-fs` (workspace) and `cve-check` (Maven deps) both miss. `.trivyignore` documents currently-accepted Paketo-upstream CVEs with tracker URLs.
 - `cve-check` also runs in CI on tag pushes, weekly cron (Mon 06:00 UTC), and `workflow_dispatch`.
 - The `cve-check` Make recipe routes `NVD_API_KEY` through `~/.m2/settings.xml` + `-DnvdApiServerId=nvd` (written via `printf` — bash builtin, no argv). The flag form `-DnvdApiKey=$$NVD_API_KEY` would leak the value via `ps -ef` / `/proc/<pid>/cmdline` for the entire ~30-min plugin lifetime.
 
@@ -162,17 +163,30 @@ Running multiple KinD clusters on the shared default `kind` Docker network cause
 - Workarounds: `kind delete cluster --name <other>` before `make e2e`, or use a per-cluster network via `KIND_EXPERIMENTAL_DOCKER_NETWORK`.
 - `make kind-destroy` prunes `kindccm-*` orphan Envoy sidecars left behind by `cloud-provider-kind`. Without that, a subsequent `kind-up` can land on an orphan's IP and inherit its stale Envoy config (pointed at dead pods from previous runs), producing "connection reset by peer" on the first curl.
 
+### Image publishing (multi-arch)
+
+- `docker` job is a per-service-per-arch matrix (6 runners): `{pizza-store, pizza-kitchen, pizza-delivery} × {amd64, arm64}`. arm64 runs on `ubuntu-24.04-arm` because Paketo CNB `spring-boot:build-image` builds only the host arch (no cross-build).
+- Each runner pushes its per-arch tag `ghcr.io/<owner>/<repo>/<svc>:<version>-<arch>`.
+- The downstream `docker-manifest` job assembles a multi-arch manifest list with `docker buildx imagetools create`, pushes both `:<version>` and `:latest` to GHCR, and signs the manifest digest with cosign keyless OIDC. A single signature covers both archs.
+
+### Test coverage extras
+
+- E2E asserts the WebSocket broadcast end-to-end via `websocat` (mise tool, `cargo:websocat 1.14.0`) — regression guard for the PUBLIC_IP-hardcoded bug retired 2026-04-26.
+- `make k8s-validate` (kubeconform) validates `k8s/` and `k8s-dapr-shared/` against vendored OpenAPI on every push, so drift in the unused alternate "shared sidecar" topology surfaces immediately.
+- `e2e` job runs an OWASP ZAP baseline DAST scan against the LB-exposed pizza-store after the assertion suite passes (`continue-on-error: true` while baseline budget is established).
+
 ## Upgrade Backlog
 
-Last reviewed: 2026-05-05
+Last reviewed: 2026-05-05 (post `/upgrade-analysis` Wave 1 patches)
 
 - [ ] **Maven 4.0 migration** — plan when Maven 4.0 reaches GA (currently RC-5)
-- [ ] **Spring Boot 4.0 EOL (2026-12-31)** — monitor 4.1 release schedule, plan upgrade before Dec 2026
+- [ ] **Spring Boot 4.0 → 4.1 migration** — Spring Boot 4.0 OSS support ends **2026-12-31**. 4.1 GA is expected Q4 2026 (currently 4.1.0-RC1). Project commits to staying on the Spring Boot 4.x line; start the 4.0 → 4.1 migration plan ~Q3 2026 to land before EOL.
 - [ ] **Alpha dependencies** — `opentelemetry-instrumentation-bom-alpha`, `wiremock-testcontainers` 1.0-alpha-15. Track GA releases.
-- [ ] **OWASP dependency-check NVD deserializer bug** — 12.2.1 cannot parse 9-digit nanosecond timestamps from the NVD API (`Failed to deserialize java.time.ZonedDateTime ... unparsed text found at index 23`). `cve-check` CI step is `continue-on-error: true` and `make pre-release` wraps it in `timeout 300` until a fixed release ships. Re-enable strict failure once upstream ships. Track: dependency-check/DependencyCheck.
+- [ ] **`dapr-spring-boot-4-starter` 1.17.3 GA on Maven Central** — currently `1.17.3-rc-1` only. Bump `dapr.version` (and `testcontainers-dapr.version`, since they're the same property) when GA lands. Runtime is already on 1.17.5/1.17.6 — runtime-ahead-of-SDK is normal Dapr Java cadence.
+- [ ] **WireMock 4.0 GA** — currently `4.0.0-beta.10` upstream; project on stable `3.13.2`. Watch for 4.0 GA before bumping.
 - [ ] **Single-app DaprContainer limitation** — upstream-blocked: `dapr/java-sdk:testcontainers-dapr/.../DaprContainer.java` exposes only single `appName/appPort/appChannelAddress` fields (no peer-app registration). Workaround in `KitchenInvocationIT` / `DeliveryInvocationIT`: override `DAPR_HTTP_ENDPOINT` to a WireMock receiver — verifies the emitted HTTP contract (verb, path, body) but bypasses the sidecar invoke hop. The full sidecar→app→sidecar path is covered by the KinD e2e via `make e2e`. Re-wire once upstream adds multi-app support.
-- [ ] **Multi-arch image publish (linux/arm64)** — `spring-boot:build-image` (Paketo CNB) builds only the host arch. Apple Silicon and Graviton consumers currently pull amd64 images. Path forward: add `runs-on: ubuntu-24.04-arm` matrix dimension with `docker manifest create`, OR migrate to a thin Dockerfile + `docker/build-push-action` with `platforms: linux/amd64,linux/arm64`.
-- [ ] **WebSocket assertion in e2e** — `WebSocketBroadcastIT` covers the WS path in-process, but `e2e/e2e-test.sh` does not connect a STOMP client to the LB-exposed `/ws`. The legacy `PUBLIC_IP`-hardcoded WebSocket bug surfaced 2026-04-26 because no e2e exercise this path. Add a `websocat` (in `.mise.toml`) or Playwright step subscribing to `/topic/events` during order placement.
+- [ ] **kindest/node v1.36 + kubectl 1.36** — KinD 0.31.0 (2025-12-18) shipped node `v1.35.0`; next minor likely brings v1.36. Bump `kubectl` from 1.35.4 to 1.36.x only after the matching node image lands so cluster ↔ kubectl skew stays at +1 minor max.
+- [ ] **`zaproxy/action-baseline` v0.16+** — pinned to `v0.15.0` (2025-10-24). Bump after the first ZAP run produces a clean baseline so reports stay comparable across runs.
 
 ## Skills
 

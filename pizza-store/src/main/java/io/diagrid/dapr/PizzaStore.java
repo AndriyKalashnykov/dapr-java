@@ -28,7 +28,7 @@ import org.springframework.web.client.RestTemplate;
 
 @SpringBootApplication
 @RestController
-@CrossOrigin(origins = "http://localhost:5173", maxAge = 3600)
+@CrossOrigin(origins = "${cors.allowed-origins:http://localhost:5173}", maxAge = 3600)
 public class PizzaStore {
 
   @Value("${DAPR_HTTP_ENDPOINT:http://localhost:3500}")

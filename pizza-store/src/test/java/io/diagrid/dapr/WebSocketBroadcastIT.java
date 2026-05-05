@@ -148,4 +148,83 @@ public class WebSocketBroadcastIT {
     session.disconnect();
     stompClient.stop();
   }
+
+  // Posting a CloudEvent with an EventType that PizzaStore.receiveEvents has
+  // no branch for (e.g., ORDER_PLACED arriving back from the bus) MUST still
+  // (a) succeed (no 500) and (b) broadcast the inbound event over the WS so
+  // browsers see every state transition — even ones the store doesn't act
+  // on. Regression guard: if a future refactor adds an early-return for
+  // unknown types, this test fails and surfaces the broken WS contract.
+  @Test
+  public void broadcastsUnknownEventTypeOverWebSocket() throws Exception {
+    WebSocketStompClient stompClient = new WebSocketStompClient(new StandardWebSocketClient());
+    stompClient.setMessageConverter(new JacksonJsonMessageConverter());
+
+    BlockingQueue<Map<String, Object>> received = new LinkedBlockingQueue<>();
+
+    String url = "ws://localhost:" + APP_PORT + "/ws";
+    StompSession session =
+        stompClient
+            .connectAsync(url, new StompSessionHandlerAdapter() {})
+            .get(10, java.util.concurrent.TimeUnit.SECONDS);
+
+    session.subscribe(
+        "/topic/events",
+        new StompFrameHandler() {
+          @Override
+          public Type getPayloadType(StompHeaders headers) {
+            return Map.class;
+          }
+
+          @SuppressWarnings("unchecked")
+          @Override
+          public void handleFrame(StompHeaders headers, Object payload) {
+            received.add((Map<String, Object>) payload);
+          }
+        });
+
+    Thread.sleep(500);
+
+    String unknownTypeEvent =
+        """
+        {
+            "specversion": "1.0",
+            "type": "com.dapr.pizza.event",
+            "data": {
+                "type": "order-placed",
+                "service": "store",
+                "message": "echo from bus",
+                "order": {
+                    "customer": {"name": "carol", "email": "carol@example.com"},
+                    "items": [{"type": "margherita", "amount": 1}],
+                    "id": "echo-1",
+                    "orderDate": "2026-05-05T12:00:00.000+00:00",
+                    "status": "created"
+                }
+            }
+        }
+        """;
+
+    with()
+        .body(unknownTypeEvent)
+        .contentType("application/cloudevents+json")
+        .when()
+        .request("POST", "/events")
+        .then()
+        .assertThat()
+        .statusCode(200);
+
+    await()
+        .atMost(Duration.ofSeconds(15))
+        .pollInterval(Duration.ofMillis(250))
+        .until(() -> !received.isEmpty());
+
+    Map<String, Object> event = received.peek();
+    assertNotNull(event, "WS broadcast must fire even for EventTypes the store has no branch for");
+    assertEquals("order-placed", event.get("type"), "Inbound event type must propagate");
+    assertEquals("store", event.get("service"), "Inbound event service must propagate");
+
+    session.disconnect();
+    stompClient.stop();
+  }
 }
