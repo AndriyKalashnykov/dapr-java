@@ -9,7 +9,6 @@
     "maven",
     "github-actions",
     "kubernetes",
-    "java-version",
     "custom.regex"
   ],
   "kubernetes": {
