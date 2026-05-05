@@ -17,3 +17,15 @@ kind = "0.31.0"
 kubectl = "1.35.4"
 # renovate: datasource=github-releases depName=helm/helm
 helm = "4.1.4"
+# kubeconform validates k8s manifest YAML against vendored OpenAPI schemas
+# (no cluster needed). Used by `make k8s-validate` to gate every push on
+# both k8s/ and k8s-dapr-shared/ parsing cleanly.
+# renovate: datasource=github-releases depName=yannh/kubeconform
+kubeconform = "0.7.0"
+# websocat is a single-binary WebSocket client used by e2e/e2e-test.sh to
+# assert STOMP broadcast over the LB-exposed /ws endpoint (regression guard
+# for the PUBLIC_IP-hardcoded WebSocket bug retired 2026-04-26 — see
+# CLAUDE.md backlog). Installed via mise's cargo backend; first run on a
+# fresh host compiles from source (~1-2 min cached locally).
+# renovate: datasource=github-releases depName=vi/websocat
+"cargo:websocat" = "1.14.0"

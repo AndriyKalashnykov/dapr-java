@@ -95,10 +95,10 @@ jobs:
     - name: Install Maven
       run: make deps-maven
 
-    # mise provides trivy + gitleaks (pinned in .mise.toml) for the
-    # static-check composite gate (format-check, checkstyle, trivy-fs,
-    # trivy-config, secrets, diagrams-check, mermaid-lint). The act runner
-    # image has neither preinstalled.
+    # mise provides trivy, gitleaks, and kubeconform (pinned in .mise.toml)
+    # for the static-check composite gate (format-check, checkstyle, trivy-fs,
+    # trivy-config, secrets, diagrams-check, mermaid-lint, k8s-validate).
+    # The act runner image has none of them preinstalled.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:

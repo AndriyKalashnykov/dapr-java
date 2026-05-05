@@ -113,4 +113,20 @@ public class PizzaKitchenTest {
         ready.getData().order().id(),
         "Ready event payload should preserve the submitted order id");
   }
+
+  // Malformed JSON body to PUT /prepare must be rejected with 400 by Spring's
+  // HttpMessageNotReadable handler before the controller runs. Catches
+  // regressions where a permissive @RequestBody validator (or a custom
+  // ExceptionHandler that swallows parse errors) lets garbage through.
+  @Test
+  public void testPrepareRejectsMalformedBody() {
+    with()
+        .body("this is not json")
+        .contentType(ContentType.JSON)
+        .when()
+        .request("PUT", "/prepare")
+        .then()
+        .assertThat()
+        .statusCode(400);
+  }
 }

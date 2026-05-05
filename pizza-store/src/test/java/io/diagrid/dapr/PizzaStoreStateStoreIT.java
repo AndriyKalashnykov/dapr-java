@@ -19,7 +19,9 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -37,6 +39,7 @@ import org.wiremock.integrations.testcontainers.WireMockContainer;
     classes = PizzaStoreAppTest.class,
     webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
 @ImportTestcontainers
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class PizzaStoreStateStoreIT {
 
   // Allocate a free port at class-load time so DaprContainer's app channel
@@ -74,6 +77,7 @@ public class PizzaStoreStateStoreIT {
   }
 
   @Test
+  @org.junit.jupiter.api.Order(3)
   public void storesAndRetrievesOrder() {
     Order submitted =
         new Order(
@@ -108,7 +112,21 @@ public class PizzaStoreStateStoreIT {
                     .body("orders.customer.email", hasItem("alice@example.com")));
   }
 
+  // GET /order against a fresh kvstore (no orders persisted yet) must return
+  // 200 — the controller relies on the State response carrying a null value
+  // being passed through to the JSON serializer. Regressions where an NPE
+  // leaks through (e.g., `state.getValue().orders.size()` unguarded) would
+  // surface here. @Order(1) guarantees this runs before any place-order test
+  // mutates the state store; without it, JUnit 5's default deterministic-but-
+  // unspecified ordering would let other tests slip ahead and pollute state.
   @Test
+  @org.junit.jupiter.api.Order(1)
+  public void getOrderReturnsOkOnEmptyState() {
+    get("/order").then().assertThat().statusCode(200);
+  }
+
+  @Test
+  @org.junit.jupiter.api.Order(2)
   public void persistsMultipleOrders() {
     Order order1 =
         new Order(

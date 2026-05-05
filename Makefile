@@ -181,6 +181,19 @@ trivy-config:
 	@trivy config --severity HIGH,CRITICAL --exit-code 1 k8s/
 	@trivy config --severity HIGH,CRITICAL --exit-code 1 k8s-dapr-shared/
 
+#k8s-validate: @ Validate k8s/ and k8s-dapr-shared/ manifests against vendored OpenAPI (kubeconform)
+# k8s-dapr-shared is an alternate "shared sidecar" topology that is NOT
+# exercised by `make e2e`. Without this gate, drift between the two manifest
+# trees ships silently and only surfaces on a manual `kubectl apply -f
+# k8s-dapr-shared/`. kubeconform validates against vendored OpenAPI schemas,
+# so no cluster is required — wires cleanly into static-check on every push.
+# -ignore-missing-schemas tolerates Dapr CRDs (Component, Subscription)
+# whose schemas aren't in the upstream master-standalone bundle.
+k8s-validate:
+	@command -v kubeconform >/dev/null 2>&1 || { echo "Error: kubeconform is required (run 'mise install')."; exit 1; }
+	@kubeconform -strict -ignore-missing-schemas -summary k8s/
+	@kubeconform -strict -ignore-missing-schemas -summary k8s-dapr-shared/
+
 #secrets: @ Scan for leaked secrets with gitleaks
 secrets:
 	@gitleaks detect --source . --verbose --redact
@@ -242,8 +255,8 @@ mermaid-lint:
 			> /dev/null || { echo "FAIL: Mermaid lint failed in $$f"; exit 1; }; \
 	done
 
-#static-check: @ Composite quality gate (format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint)
-static-check: format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint
+#static-check: @ Composite quality gate (format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate)
+static-check: format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint k8s-validate
 	@echo "All static checks passed"
 
 #run: @ Run the application
@@ -556,4 +569,4 @@ release: pre-release
 	print-deps-updates update-deps renovate-validate \
 	image-build image-scan kind-create kind-deploy kind-undeploy kind-destroy \
 	kind-up kind-down e2e pre-release release \
-	diagrams diagrams-clean diagrams-check mermaid-lint
+	diagrams diagrams-clean diagrams-check mermaid-lint k8s-validate

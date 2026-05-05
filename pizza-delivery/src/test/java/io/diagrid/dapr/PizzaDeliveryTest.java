@@ -121,4 +121,20 @@ public class PizzaDeliveryTest {
         completed.getData().service(),
         "Completed event should be attributed to the delivery service");
   }
+
+  // Malformed JSON body to PUT /deliver must be rejected with 400 by Spring's
+  // HttpMessageNotReadable handler before the controller runs. Catches
+  // regressions where a permissive @RequestBody validator (or a custom
+  // ExceptionHandler that swallows parse errors) lets garbage through.
+  @Test
+  public void testDeliveryRejectsMalformedBody() {
+    with()
+        .body("this is not json")
+        .contentType(ContentType.JSON)
+        .when()
+        .request("PUT", "/deliver")
+        .then()
+        .assertThat()
+        .statusCode(400);
+  }
 }
