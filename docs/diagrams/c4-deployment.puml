@@ -10,13 +10,21 @@ Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
   Deployment_Node(ns, "Namespace: default") {
     Container(lb, "Service: pizza-store", "LoadBalancer 80 -> 8080 (cloud-provider-kind / cloud LB)")
 
-    Deployment_Node(appPod, "Pod (x 3: pizza-store, pizza-kitchen, pizza-delivery)") {
-      Container(app, "Spring Boot service", "Spring Boot 4.0.6, Java 21 — three per-service replicas")
-      Container(sidecar, "Dapr sidecar", "Dapr runtime 1.17.5 — injected per pod; app-ids match service names")
+    Deployment_Node(storePod, "Pod: pizza-store") {
+      Container(storeApp, "pizza-store", "Spring Boot 4.0.6, Java 21")
+      Container(storeSidecar, "Dapr sidecar", "app-id: pizza-store")
+    }
+    Deployment_Node(kitchenPod, "Pod: pizza-kitchen") {
+      Container(kitchenApp, "pizza-kitchen", "Spring Boot 4.0.6, Java 21")
+      Container(kitchenSidecar, "Dapr sidecar", "app-id: kitchen-service")
+    }
+    Deployment_Node(deliveryPod, "Pod: pizza-delivery") {
+      Container(deliveryApp, "pizza-delivery", "Spring Boot 4.0.6, Java 21")
+      Container(deliverySidecar, "Dapr sidecar", "app-id: delivery-service")
     }
 
-    ContainerQueue(pubsub, "PubSub backend", "Kafka (prod) / Redis (e2e)")
-    ContainerDb(state, "State Store backend", "PostgreSQL (prod) / Redis (e2e)")
+    ContainerQueue(pubsub, "PubSub backend", "Kafka (managed) / Redis (e2e)")
+    ContainerDb(state, "State Store backend", "PostgreSQL (managed) / Redis (e2e)")
   }
 
   Deployment_Node(daprSys, "Namespace: dapr-system") {
@@ -25,12 +33,20 @@ Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
 }
 
 Rel(customer, lb, "HTTPS / WebSocket")
-Rel(lb, app, "Routes to pizza-store:8080")
+Rel(lb, storeApp, "Routes to pizza-store:8080")
 
-Rel(sidecar, sidecar, "Service invocation between sidecars", "mTLS HTTP/gRPC")
-Rel(sidecar, state, "Persist orders (pizza-store)")
-Rel(sidecar, pubsub, "Publish / subscribe events")
-Rel(sidecar, daprCtrl, "Placement lookup, cert rotation", "gRPC")
+' Cross-pod service invocation flows store -> kitchen / delivery via the
+' caller's local sidecar. The two arrows model the actual sidecar-to-sidecar
+' hops; the apps invoke through localhost on their own sidecar (intra-pod).
+Rel(storeSidecar, kitchenSidecar, "Invoke kitchen-service", "mTLS HTTP/gRPC")
+Rel(storeSidecar, deliverySidecar, "Invoke delivery-service", "mTLS HTTP/gRPC")
+
+Rel(storeSidecar, state, "Persist orders", "Dapr state API")
+Rel(kitchenSidecar, pubsub, "Publish ORDER_IN_PREPARATION, ORDER_READY", "CloudEvents")
+Rel(deliverySidecar, pubsub, "Publish ORDER_ON_ITS_WAY, ORDER_COMPLETED", "CloudEvents")
+Rel(pubsub, storeSidecar, "Deliver subscribed events", "CloudEvents -> POST /events")
+
+Rel(storeSidecar, daprCtrl, "Placement lookup, cert rotation", "gRPC")
 
 SHOW_LEGEND()
 @enduml

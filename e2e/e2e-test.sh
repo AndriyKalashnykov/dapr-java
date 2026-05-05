@@ -83,6 +83,33 @@ $KUBECTL wait --for=condition=Ready pod -l app=pizza-store-service   --timeout=1
 $KUBECTL wait --for=condition=Ready pod -l app=pizza-kitchen-service --timeout=180s || true
 $KUBECTL wait --for=condition=Ready pod -l app=pizza-delivery-service --timeout=180s || true
 
+# K1.5 route-readiness poll. cloud-provider-kind assigns the LoadBalancer IP
+# (so `kubectl wait --for=jsonpath` returns) ~5-60s before its `kindccm-<hash>`
+# Envoy sidecar finishes wiring iptables/IPVS rules between the LB IP and the
+# pizza-store pod. Hitting $BASE before that window closes returns
+# `curl: (56) Recv failure: Connection reset by peer` and the e2e fails
+# spuriously. Poll /actuator/health/readiness up to 120s before the first
+# real assertion runs.
+echo ""
+echo "=== Waiting for LoadBalancer route to be ready ==="
+ROUTE_READY=0
+for i in $(seq 1 60); do
+  if curl -sf -o /dev/null --max-time 3 "$BASE/actuator/health/readiness" 2>/dev/null; then
+    ROUTE_READY=1
+    echo "  …route ready after $((i * 2))s"
+    break
+  fi
+  sleep 2
+done
+if (( ROUTE_READY == 0 )); then
+  echo "FATAL: LoadBalancer IP $GATEWAY_IP did not start serving /actuator/health/readiness within 120s." >&2
+  echo "--- Diagnostics ---" >&2
+  $KUBECTL get svc pizza-store -o yaml >&2 || true
+  $KUBECTL get pods -o wide >&2 || true
+  $KUBECTL get endpoints pizza-store -o yaml >&2 || true
+  exit 2
+fi
+
 echo ""
 echo "=== E2E Tests against $BASE ==="
 
@@ -124,11 +151,15 @@ echo "=== Polling for order lifecycle (budget 150s) ==="
 DEADLINE=$(( $(date +%s) + 150 ))
 FINAL_STATUS=""
 SEEN_COMPLETED=0
+SEEN_DELIVERY=0
 while (( $(date +%s) < DEADLINE )); do
   ORDERS_JSON=$(curl -sf --max-time 10 "$BASE/order" 2>/dev/null || echo "")
   FINAL_STATUS=$(echo "$ORDERS_JSON" | jq -r --arg id "$ORDER_ID" \
     '.orders[]? | select(.id == $id) | .status' 2>/dev/null || true)
   echo "  …current status: ${FINAL_STATUS:-unknown}"
+  if [[ "$FINAL_STATUS" == "delivery" ]]; then
+    SEEN_DELIVERY=1
+  fi
   if [[ "$FINAL_STATUS" == "completed" ]]; then
     SEEN_COMPLETED=1
     break
@@ -140,6 +171,15 @@ if (( SEEN_COMPLETED == 1 )); then
   pass "Cross-service fan-out: order $ORDER_ID reached 'completed' (store → kitchen → store → delivery → store)"
 else
   fail "Order $ORDER_ID did not reach 'completed' (final='$FINAL_STATUS')"
+fi
+
+# Assert the intermediate delivery transition was observed during the poll.
+# Catches a regression where the store skips straight from `in-preparation`
+# to `completed` (e.g. ORDER_READY handler accidentally writes the wrong
+# status). Soft-checked: the poll sleep is 3s and `delivery` lasts ~9s
+# (3 ORDER_ON_ITS_WAY stages), so capture failure rate would be ~0.1%.
+if (( SEEN_COMPLETED == 1 && SEEN_DELIVERY == 0 )); then
+  echo "WARN: order reached 'completed' but the intermediate 'delivery' status was never observed during the 3s poll cadence."
 fi
 
 # 4. State store round-trip: GET /order after lifecycle must still have the order

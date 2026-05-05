@@ -9,6 +9,7 @@
     "maven",
     "github-actions",
     "kubernetes",
+    "java-version",
     "custom.regex"
   ],
   "kubernetes": {
@@ -121,6 +122,27 @@
       "groupName": "OpenTelemetry",
       "matchPackageNames": [
         "/^io\\.opentelemetry/"
+      ]
+    },
+    {
+      "description": "Group Jackson dependencies",
+      "groupName": "Jackson",
+      "matchPackageNames": [
+        "/^tools\\.jackson/"
+      ]
+    },
+    {
+      "description": "Group WireMock dependencies",
+      "groupName": "WireMock",
+      "matchPackageNames": [
+        "/^org\\.wiremock/"
+      ]
+    },
+    {
+      "description": "Group Tomcat embed dependencies",
+      "groupName": "Tomcat embed",
+      "matchPackageNames": [
+        "/^org\\.apache\\.tomcat/"
       ]
     },
     {
