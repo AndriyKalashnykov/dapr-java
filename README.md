@@ -31,9 +31,9 @@ C4Context
 | Framework | Spring Boot 4.0.6 | Current GA; provides embedded Tomcat, auto-configuration, and Actuator |
 | Runtime sidecar | Dapr 1.17.5 (Helm) / 1.17.2 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
 | Dapr SDK | `dapr-spring-boot-4-starter` 1.17.2 | Latest stable on Maven Central; 1.17.3 is RC-only |
-| HTTP server | Embedded Tomcat 11.0.21 | Pinned in `dependencyManagement` to address CVEs |
-| JSON | Jackson 3.1.2 | Pinned to address CVE-reported 2.x transitive dependencies |
-| gRPC | gRPC 1.80.0 | Pinned to address CVEs in older Spring-Boot-managed version |
+| HTTP server | Embedded Tomcat 11.0.22 | Pinned in `dependencyManagement` to address CVEs |
+| JSON | Jackson 3.1.3 | Pinned to address CVE-reported 2.x transitive dependencies |
+| gRPC | gRPC 1.81.0 | Pinned to address CVEs in older Spring-Boot-managed version |
 | Build | Maven 3.9.15 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
 | Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy + gitleaks | Composite `make static-check` gate |
@@ -322,6 +322,8 @@ Run `make help` to see all available targets.
 | `make kind-deploy` | (granular) Build + load images, apply manifests, wait for rollout + LB IP |
 | `make kind-undeploy` | (granular) Delete application manifests from the cluster |
 | `make kind-destroy` | (granular) Stop cloud-provider-kind + delete KinD cluster |
+| `make k8s-shared-deploy` | Deploy the alternate "shared sidecar" topology (`k8s-dapr-shared/`) — manual, not in CI. See [`k8s-dapr-shared/README.md`](k8s-dapr-shared/README.md) |
+| `make k8s-shared-undeploy` | Remove the shared-sidecar topology |
 
 ### CI
 
