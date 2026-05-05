@@ -22,7 +22,8 @@ make trivy-config                       # Scan k8s/ and k8s-dapr-shared/ for KSV
 make secrets                            # Scan for leaked secrets (gitleaks)
 make deps-prune                         # Analyze Maven dependencies (advisory)
 make deps-prune-check                   # Fail if unused declared Maven dependencies exist
-make static-check                       # Composite: format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint
+make static-check                       # Composite: format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate
+make k8s-validate                       # Validate k8s/ + k8s-dapr-shared/ manifests via kubeconform (vendored OpenAPI, no cluster)
 make diagrams                           # Render docs/diagrams/*.puml → docs/diagrams/out/*.png (PlantUML in Docker)
 make diagrams-clean                     # Remove rendered PNGs
 make diagrams-check                     # Verify committed PNGs match .puml sources (static-check gate)
@@ -162,6 +163,18 @@ Running multiple KinD clusters on the shared default `kind` Docker network cause
 - Workarounds: `kind delete cluster --name <other>` before `make e2e`, or use a per-cluster network via `KIND_EXPERIMENTAL_DOCKER_NETWORK`.
 - `make kind-destroy` prunes `kindccm-*` orphan Envoy sidecars left behind by `cloud-provider-kind`. Without that, a subsequent `kind-up` can land on an orphan's IP and inherit its stale Envoy config (pointed at dead pods from previous runs), producing "connection reset by peer" on the first curl.
 
+### Image publishing (multi-arch)
+
+- `docker` job is a per-service-per-arch matrix (6 runners): `{pizza-store, pizza-kitchen, pizza-delivery} × {amd64, arm64}`. arm64 runs on `ubuntu-24.04-arm` because Paketo CNB `spring-boot:build-image` builds only the host arch (no cross-build).
+- Each runner pushes its per-arch tag `ghcr.io/<owner>/<repo>/<svc>:<version>-<arch>`.
+- The downstream `docker-manifest` job assembles a multi-arch manifest list with `docker buildx imagetools create`, pushes both `:<version>` and `:latest` to GHCR, and signs the manifest digest with cosign keyless OIDC. A single signature covers both archs.
+
+### Test coverage extras
+
+- E2E asserts the WebSocket broadcast end-to-end via `websocat` (mise tool, `cargo:websocat 1.14.0`) — regression guard for the PUBLIC_IP-hardcoded bug retired 2026-04-26.
+- `make k8s-validate` (kubeconform) validates `k8s/` and `k8s-dapr-shared/` against vendored OpenAPI on every push, so drift in the unused alternate "shared sidecar" topology surfaces immediately.
+- `e2e` job runs an OWASP ZAP baseline DAST scan against the LB-exposed pizza-store after the assertion suite passes (`continue-on-error: true` while baseline budget is established).
+
 ## Upgrade Backlog
 
 Last reviewed: 2026-05-05
@@ -171,8 +184,6 @@ Last reviewed: 2026-05-05
 - [ ] **Alpha dependencies** — `opentelemetry-instrumentation-bom-alpha`, `wiremock-testcontainers` 1.0-alpha-15. Track GA releases.
 - [ ] **OWASP dependency-check NVD deserializer bug** — 12.2.1 cannot parse 9-digit nanosecond timestamps from the NVD API (`Failed to deserialize java.time.ZonedDateTime ... unparsed text found at index 23`). `cve-check` CI step is `continue-on-error: true` and `make pre-release` wraps it in `timeout 300` until a fixed release ships. Re-enable strict failure once upstream ships. Track: dependency-check/DependencyCheck.
 - [ ] **Single-app DaprContainer limitation** — upstream-blocked: `dapr/java-sdk:testcontainers-dapr/.../DaprContainer.java` exposes only single `appName/appPort/appChannelAddress` fields (no peer-app registration). Workaround in `KitchenInvocationIT` / `DeliveryInvocationIT`: override `DAPR_HTTP_ENDPOINT` to a WireMock receiver — verifies the emitted HTTP contract (verb, path, body) but bypasses the sidecar invoke hop. The full sidecar→app→sidecar path is covered by the KinD e2e via `make e2e`. Re-wire once upstream adds multi-app support.
-- [ ] **Multi-arch image publish (linux/arm64)** — `spring-boot:build-image` (Paketo CNB) builds only the host arch. Apple Silicon and Graviton consumers currently pull amd64 images. Path forward: add `runs-on: ubuntu-24.04-arm` matrix dimension with `docker manifest create`, OR migrate to a thin Dockerfile + `docker/build-push-action` with `platforms: linux/amd64,linux/arm64`.
-- [ ] **WebSocket assertion in e2e** — `WebSocketBroadcastIT` covers the WS path in-process, but `e2e/e2e-test.sh` does not connect a STOMP client to the LB-exposed `/ws`. The legacy `PUBLIC_IP`-hardcoded WebSocket bug surfaced 2026-04-26 because no e2e exercise this path. Add a `websocat` (in `.mise.toml`) or Playwright step subscribing to `/topic/events` during order placement.
 
 ## Skills
 

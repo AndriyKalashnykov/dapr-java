@@ -38,6 +38,7 @@ C4Context
 | Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy + gitleaks | Composite `make static-check` gate |
 | Diagram lint | PlantUML 1.2026.2 (`make diagrams-check`) + mermaid-cli 11.12.0 (`make mermaid-lint`) | Wired into `make static-check` |
+| Manifest validation | kubeconform 0.7.0 (`make k8s-validate`, vendored OpenAPI — no cluster needed) | Validates both `k8s/` and `k8s-dapr-shared/` on every push |
 | Coverage | JaCoCo (80% min, enforced) | Enforced by `make coverage-check` |
 | Version manager | [mise](https://mise.jdx.dev/) | Pins Java/Maven/Node via `.mise.toml` |
 | CI | GitHub Actions | Workflow at `.github/workflows/ci.yml` |
@@ -284,7 +285,8 @@ Run `make help` to see all available targets.
 
 | Target | Description |
 |--------|-------------|
-| `make static-check` | Composite gate: `format-check` + `lint` + `trivy-fs` + `trivy-config` + `secrets` + `diagrams-check` + `mermaid-lint` |
+| `make static-check` | Composite gate: `format-check` + `lint` + `trivy-fs` + `trivy-config` + `secrets` + `diagrams-check` + `mermaid-lint` + `k8s-validate` |
+| `make k8s-validate` | Validate `k8s/` + `k8s-dapr-shared/` manifests against vendored OpenAPI via kubeconform (no cluster needed) |
 | `make lint` | Run Checkstyle static analysis |
 | `make format` | Auto-format Java source (google-java-format) |
 | `make format-check` | Verify source formatting without modifying files |
@@ -357,22 +359,25 @@ GitHub Actions runs on push to `main`, tags `v*`, pull requests, a weekly schedu
 | Job | Triggers | Depends on | Steps |
 |-----|----------|-----------|-------|
 | **changes** | push, PR, tags | — | `dorny/paths-filter` emits `code` (binary skip-everything-on-docs-only) and `e2e` (heavy KinD job gating) flags consumed by downstream jobs |
-| **static-check** | push, PR, tags (`code` flag) | `changes` | `make static-check` (format-check, Checkstyle, trivy-fs, trivy-config, gitleaks, diagrams-check, mermaid-lint); `fetch-depth: 0` so gitleaks can walk history |
+| **static-check** | push, PR, tags (`code` flag) | `changes` | `make static-check` (format-check, Checkstyle, trivy-fs, trivy-config, gitleaks, diagrams-check, mermaid-lint, k8s-validate); `fetch-depth: 0` so gitleaks can walk history |
 | **build** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make build`; tag-gated artifact upload of `pizza-*/target/*.jar` |
 | **test** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make test` (Surefire unit tests only — fast feedback) |
 | **integration-test** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make coverage-generate` + `make coverage-check`; runs surefire + failsafe + merged-coverage gate; uploads JaCoCo report |
 | **cve-check** | tag push, weekly cron (Mon 06:00 UTC), `workflow_dispatch` | `static-check` | `make cve-check` (OWASP dependency-check), NVD cache, HTML report upload; `continue-on-error` until upstream NVD deserializer fix |
-| **e2e** | push to `main`/tag, PR label `run-e2e` or `e2e` flag, `workflow_dispatch` | `changes`, `build`, `test` | `jdx/mise-action` installs kind/kubectl/helm/trivy/gitleaks via `mise`, then `make e2e`; collects pod logs + cluster events on failure |
-| **docker** | tag push only | `static-check`, `build`, `test`, `integration-test`, `cve-check`, `e2e` | Per-service matrix (parallel runner per `pizza-store` / `pizza-kitchen` / `pizza-delivery`). GATE 1+2: `make image-scan` builds via `spring-boot:build-image` (Paketo CNB) and runs `trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`. GATE 3: Spring Boot boot-marker smoke test (90 s timeout, fails on missing classes / port-bind / broken auto-config). Then push to `ghcr.io/<owner>/<repo>/pizza-*:<version>` + `:latest`, capture digest from `RepoDigests`, and sign with [cosign keyless OIDC](https://docs.sigstore.dev/cosign/keyless/) (Sigstore Fulcio, no key material to manage; signature recorded in the public Rekor transparency log) |
+| **e2e** | push to `main`/tag, PR label `run-e2e` or `e2e` flag, `workflow_dispatch` | `changes`, `build`, `test` | `jdx/mise-action` installs kind/kubectl/helm/trivy/gitleaks/kubeconform/websocat via `mise`, then `make e2e` (now includes K1.5 route-readiness poll + WebSocket broadcast assertion via `websocat`); followed by an OWASP ZAP baseline DAST scan against the LB-exposed pizza-store. Collects pod logs + cluster events on failure |
+| **docker** | tag push only | `static-check`, `build`, `test`, `integration-test`, `cve-check`, `e2e` | Per-service-per-arch matrix (6 runners total: `{pizza-store, pizza-kitchen, pizza-delivery} × {amd64, arm64}`; arm64 runs on `ubuntu-24.04-arm`). GATE 1+2: `make image-scan` builds via `spring-boot:build-image` (Paketo CNB, native arch only) and runs `trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`. GATE 3: Spring Boot boot-marker smoke test (90 s timeout, fails on missing classes / port-bind / broken auto-config). Each runner pushes its per-arch tag `ghcr.io/<owner>/<repo>/pizza-*:<version>-<arch>` |
+| **docker-manifest** | tag push only | `docker` | Per-service matrix. Assembles a multi-arch manifest list with `docker buildx imagetools create` from the per-arch refs, pushes both `:<version>` and `:latest` to GHCR, and signs the manifest digest with [cosign keyless OIDC](https://docs.sigstore.dev/cosign/keyless/) (Sigstore Fulcio, no key material to manage; one signature covers both archs and is recorded in the public Rekor transparency log) |
 | **ci-pass** | always | all above | Gate job that fails if any needed job failed or was cancelled (required-status-check target) |
 
-Verify a published image's signature locally:
+Verify a published multi-arch image's signature locally:
 
 ```bash
 cosign verify ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.2 \
   --certificate-identity-regexp 'https://github.com/AndriyKalashnykov/dapr-java/.github/workflows/ci.yml@refs/tags/v.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+The manifest digest is shared by `linux/amd64` and `linux/arm64` — a single signature covers both. Inspect with `docker buildx imagetools inspect ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.2`.
 
 ### Required Secrets and Variables
 
