@@ -8,7 +8,11 @@ Person(customer, "Customer", "Places and tracks pizza orders via the web UI")
 
 System(pizza, "Pizza Store Platform", "Orders, cooks, and delivers pizzas; three Spring Boot 4 services collaborating over Dapr building blocks")
 
-System_Ext(dapr, "Dapr Runtime", "Sidecar building blocks — service invocation, pub/sub, state store")
+' The platform owns its Dapr deployment (Helm-installed control plane + per-pod
+' sidecars), so it is modelled as System() rather than System_Ext(). This keeps
+' the framing consistent with the Container view, where the sidecar is drawn
+' inside the platform's System_Boundary.
+System(dapr, "Dapr Runtime", "Sidecar building blocks — service invocation, pub/sub, state store")
 
 Rel(customer, pizza, "Places and tracks orders", "HTTPS / WebSocket")
 Rel(pizza, dapr, "Uses building blocks", "HTTP / gRPC on localhost")

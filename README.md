@@ -35,8 +35,9 @@ C4Context
 | JSON | Jackson 3.1.2 | Pinned to address CVE-reported 2.x transitive dependencies |
 | gRPC | gRPC 1.80.0 | Pinned to address CVEs in older Spring-Boot-managed version |
 | Build | Maven 3.9.15 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
-| Test containers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
+| Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy + gitleaks | Composite `make static-check` gate |
+| Diagram lint | PlantUML 1.2026.2 (`make diagrams-check`) + mermaid-cli 11.12.0 (`make mermaid-lint`) | Wired into `make static-check` |
 | Coverage | JaCoCo (80% min, enforced) | Enforced by `make coverage-check` |
 | Version manager | [mise](https://mise.jdx.dev/) | Pins Java/Maven/Node via `.mise.toml` |
 | CI | GitHub Actions | Workflow at `.github/workflows/ci.yml` |
@@ -47,9 +48,11 @@ C4Context
 make deps          # install build dependencies via mise (reads .mise.toml)
 make build         # build project (skips tests)
 make test          # run unit tests (requires Docker)
-make run           # start the application (dev only — needs a Dapr sidecar to serve orders end-to-end; see Kubernetes Deployment for the full stack)
+make run           # start pizza-store standalone
 # Open http://localhost:8080
 ```
+
+`make run` boots `pizza-store` only — the UI loads, but order placement requires the full three-service stack with Dapr sidecars. Use `make kind-up` (see [Kubernetes Deployment](#kubernetes-deployment)) to bring everything up locally.
 
 ## Prerequisites
 
@@ -77,6 +80,12 @@ make env-check
 ## Architecture
 
 The Pizza Store application simulates placing a Pizza Order that is processed by three Spring Boot 4 services communicating over Dapr building blocks. The Pizza Store Service serves as the frontend and backend to place orders; orders are sent to the Kitchen Service for preparation and once ready, the Delivery Service takes the order to the customer. [Dapr](https://dapr.io) decouples the services from infrastructure — [building block APIs](https://docs.dapr.io/concepts/building-blocks-concept/) (State Store, PubSub, Service Invocation) let infrastructure teams swap PostgreSQL/Kafka (prod) for Redis (e2e) without touching application code.
+
+### Context View
+
+<img src="docs/diagrams/out/c4-context.png" alt="C4 Context diagram — Pizza on Dapr" width="600">
+
+A customer interacts with the Pizza Store Platform over HTTPS / WebSocket; the platform delegates service invocation, pub/sub, and state persistence to its co-deployed Dapr Runtime (Helm-installed control plane plus per-pod sidecars). Source: [`docs/diagrams/c4-context.puml`](docs/diagrams/c4-context.puml).
 
 ### Container View
 
@@ -128,8 +137,8 @@ sequenceDiagram
 
 <img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="800">
 
-- Three pods, one per service (`pizza-store`, `pizza-kitchen`, `pizza-delivery`), each running a single replica in the `default` namespace. The diagram collapses them to a single representative pod for legibility — in the cluster they're three separate `Deployment`s with matching `dapr.io/app-id` annotations (`pizza-store`, `kitchen-service`, `delivery-service`).
-- Each pod co-locates the Spring Boot app container with a Dapr sidecar injected via the `dapr.io/enabled` annotation.
+- Three pods in the `default` namespace, one per service (`pizza-store`, `pizza-kitchen`, `pizza-delivery`), each running a single replica with matching `dapr.io/app-id` annotations (`pizza-store`, `kitchen-service`, `delivery-service`).
+- Each pod co-locates the Spring Boot app container with a Dapr sidecar injected via the `dapr.io/enabled` annotation. Cross-pod service invocation flows app → local sidecar → remote sidecar → remote app over mTLS HTTP/gRPC; apps never address each other directly.
 - `pizza-store` is exposed through a `Service` of type `LoadBalancer`. On KinD that IP is provisioned by [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) (host-side controller, no in-cluster MetalLB); in production the cloud LB controller fills the same role. Service port 80 bridges to container port 8080.
 - The Dapr control plane (`dapr-operator`, `placement`, `sentry`, `injector`) runs in the `dapr-system` namespace via the official Helm chart (1.17.5).
 - PubSub and State Store components resolve to Redis for e2e (`k8s/components-e2e.yaml`) and to Kafka + PostgreSQL in production.
@@ -156,9 +165,21 @@ CloudEvents can be replayed locally against a running pizza-store using [`httpie
 http :8080/events Content-Type:application/cloudevents+json < pizza-store/event-in-prep.json
 ```
 
-## Testing
+## Build & Package
 
-Tests use [Testcontainers](https://testcontainers.com) with [`io.dapr:testcontainers-dapr`](https://central.sonatype.com/artifact/io.dapr/testcontainers-dapr) to automatically start Dapr sidecars and placement services. Integration tests run outside of Kubernetes without any manual Dapr setup — only Docker is required.
+The build pipeline produces three artefact tiers, each gated by a separate `make` target:
+
+| Stage | Command | Output | Notes |
+|-------|---------|--------|-------|
+| Compile + JAR | `make build` | `pizza-store/target/*.jar`, `pizza-kitchen/target/*.jar`, `pizza-delivery/target/*.jar` | Standard Maven `install -Dmaven.test.skip=true` |
+| OCI image | `make image-build` | `pizza-store:e2e`, `pizza-kitchen:e2e`, `pizza-delivery:e2e` (local Docker daemon) | Built via `mvn spring-boot:build-image` (Paketo CNB buildpacks); no `Dockerfile` |
+| Image scan | `make image-scan` | Pass / fail (HIGH/CRITICAL fixed-only) | Trivy `--ignore-unfixed --exit-code 1`; closes the Paketo base-layer CVE blind spot that `trivy-fs` and `cve-check` cannot see |
+
+For tag-gated GHCR publication see [CI/CD](#cicd) — the `docker` job builds, scans, smoke-tests (Spring Boot boot marker), pushes to `ghcr.io/<owner>/<repo>/pizza-*:<version>` and `:latest`, and signs every digest with [cosign keyless OIDC](https://docs.sigstore.dev/cosign/keyless/) (Sigstore Fulcio).
+
+### Testing
+
+Tests use [Testcontainers](https://testcontainers.com) with [`io.dapr:testcontainers-dapr`](https://central.sonatype.com/artifact/io.dapr/testcontainers-dapr) to start Dapr sidecars and placement services. Integration tests run outside Kubernetes without any manual Dapr setup — only Docker is required.
 
 ```mermaid
 flowchart LR
@@ -331,7 +352,7 @@ Run `make help` to see all available targets.
 
 ## CI/CD
 
-GitHub Actions runs on push to `main`, tags `v*`, pull requests, a weekly schedule, and `workflow_dispatch`.
+GitHub Actions runs on push to `main`, tags `v*`, pull requests, a weekly schedule (`cron: 0 6 * * 1`), `workflow_dispatch`, and `workflow_call` (for downstream pipelines that invoke this workflow).
 
 | Job | Triggers | Depends on | Steps |
 |-----|----------|-----------|-------|
@@ -340,10 +361,18 @@ GitHub Actions runs on push to `main`, tags `v*`, pull requests, a weekly schedu
 | **build** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make build`; tag-gated artifact upload of `pizza-*/target/*.jar` |
 | **test** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make test` (Surefire unit tests only — fast feedback) |
 | **integration-test** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make coverage-generate` + `make coverage-check`; runs surefire + failsafe + merged-coverage gate; uploads JaCoCo report |
-| **cve-check** | tag push, weekly cron (Mon 06:00 UTC), `workflow_dispatch` | `static-check` | `make cve-check` (OWASP dependency-check), NVD cache, HTML report upload |
+| **cve-check** | tag push, weekly cron (Mon 06:00 UTC), `workflow_dispatch` | `static-check` | `make cve-check` (OWASP dependency-check), NVD cache, HTML report upload; `continue-on-error` until upstream NVD deserializer fix |
 | **e2e** | push to `main`/tag, PR label `run-e2e` or `e2e` flag, `workflow_dispatch` | `changes`, `build`, `test` | `jdx/mise-action` installs kind/kubectl/helm/trivy/gitleaks via `mise`, then `make e2e`; collects pod logs + cluster events on failure |
-| **publish-images** | tag push only | `static-check`, `build`, `test`, `integration-test`, `e2e` | `make image-scan` builds + scans Paketo CNB images; tags and pushes `ghcr.io/<owner>/<repo>/pizza-*:<version>` and `:latest` |
+| **docker** | tag push only | `static-check`, `build`, `test`, `integration-test`, `cve-check`, `e2e` | Per-service matrix (parallel runner per `pizza-store` / `pizza-kitchen` / `pizza-delivery`). GATE 1+2: `make image-scan` builds via `spring-boot:build-image` (Paketo CNB) and runs `trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`. GATE 3: Spring Boot boot-marker smoke test (90 s timeout, fails on missing classes / port-bind / broken auto-config). Then push to `ghcr.io/<owner>/<repo>/pizza-*:<version>` + `:latest`, capture digest from `RepoDigests`, and sign with [cosign keyless OIDC](https://docs.sigstore.dev/cosign/keyless/) (Sigstore Fulcio, no key material to manage; signature recorded in the public Rekor transparency log) |
 | **ci-pass** | always | all above | Gate job that fails if any needed job failed or was cancelled (required-status-check target) |
+
+Verify a published image's signature locally:
+
+```bash
+cosign verify ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.2 \
+  --certificate-identity-regexp 'https://github.com/AndriyKalashnykov/dapr-java/.github/workflows/ci.yml@refs/tags/v.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 ### Required Secrets and Variables
 

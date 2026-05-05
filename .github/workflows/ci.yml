@@ -51,6 +51,12 @@ jobs:
       uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
       id: filter
       with:
+        # Set base only on push events. dorny/paths-filter ignores `base` on
+        # pull_request events and emits a warning annotation; gating via the
+        # template expression keeps push runs explicit while staying silent on
+        # PRs. Required for `act push` (used by `make ci-run`) which has no
+        # default base ref.
+        base: ${{ github.event_name == 'push' && 'main' || '' }}
         filters: |
           code:
             - '!(**.md|docs/**|specs/**|LICENSE|.gitignore|.claudeignore|.claude/**|benchmarks/**|**.png|**.jpg|**.gif|**.svg)'
@@ -86,13 +92,14 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Ensure Maven is installed
+    - name: Install Maven
       run: make deps-maven
 
-    # static-check invokes trivy + gitleaks (in addition to format-check,
-    # checkstyle, diagrams-check, mermaid-lint). mise installs both pinned
-    # to .mise.toml; the act runner image has neither preinstalled.
-    - name: Install mise (provides trivy, gitleaks pinned)
+    # mise provides trivy + gitleaks (pinned in .mise.toml) for the
+    # static-check composite gate (format-check, checkstyle, trivy-fs,
+    # trivy-config, secrets, diagrams-check, mermaid-lint). The act runner
+    # image has neither preinstalled.
+    - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
         cache: true
@@ -118,7 +125,7 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Ensure Maven is installed
+    - name: Install Maven
       run: make deps-maven
 
     - name: Build
@@ -160,7 +167,7 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Ensure Maven is installed
+    - name: Install Maven
       run: make deps-maven
 
     - name: Test
@@ -189,7 +196,7 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Ensure Maven is installed
+    - name: Install Maven
       run: make deps-maven
 
     - name: Integration test with coverage
@@ -235,7 +242,7 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Ensure Maven is installed
+    - name: Install Maven
       run: make deps-maven
 
     - name: Cache NVD database
@@ -303,10 +310,12 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Ensure Maven is installed
+    - name: Install Maven
       run: make deps-maven
 
-    - name: Install mise (provides kind, kubectl, helm, trivy, gitleaks pinned)
+    # mise provides kind, kubectl, helm, trivy, gitleaks (pinned in .mise.toml)
+    # for the KinD-based e2e flow.
+    - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
         cache: true
@@ -350,7 +359,7 @@ jobs:
   # + docker/build-push-action. Tracked in CLAUDE.md upgrade backlog.
   # strategy.matrix runs each service in parallel on its own runner —
   # wall-clock = max(per-service-time), not sum.
-  publish-images:
+  docker:
     needs: [static-check, build, test, integration-test, cve-check, e2e]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -378,19 +387,20 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Ensure Maven is installed
+    - name: Install Maven
       run: make deps-maven
 
-    - name: Install mise (provides trivy pinned)
+    # mise provides trivy (pinned in .mise.toml) for the image scan gate.
+    - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
         cache: true
 
-    - name: Derive version from tag
+    - name: Set version from tag
       id: ver
       run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-    - name: Lowercase namespace
+    - name: Set lowercase image namespace
       id: ns
       run: |
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -400,8 +410,10 @@ jobs:
 
     # GATE 1+2: Build + Trivy image scan via existing make target.
     # SERVICES override scopes the loop to this matrix entry only — each
-    # service builds + scans on its own runner in parallel.
-    - name: Build + scan ${{ matrix.service }} image
+    # service builds + scans on its own runner in parallel. The matrix
+    # coordinate ($SVC) renders in the GitHub UI as `docker (pizza-store) /
+    # Build and scan image`, so the step name itself stays static.
+    - name: Build and scan image
       run: make image-scan SERVICES='${{ matrix.service }}'
 
     # GATE 3: Spring Boot boot-marker smoke test.
@@ -411,7 +423,7 @@ jobs:
     # Dapr sidecars + state store at runtime, so the readiness probe would
     # fail without them; the boot-marker fires BEFORE any external-dep
     # check, which is exactly what we want here.
-    - name: Smoke test ${{ matrix.service }}
+    - name: Smoke test
       run: |
         set -euo pipefail
         SVC='${{ matrix.service }}'
@@ -443,7 +455,7 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Tag + push ${{ matrix.service }} to GHCR
+    - name: Build and push
       id: push
       env:
         SVC: ${{ matrix.service }}
@@ -480,7 +492,9 @@ jobs:
     - name: Install cosign
       uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
-    - name: Sign image with cosign (keyless OIDC)
+    # Keyless OIDC signing via Sigstore Fulcio — no key material to manage,
+    # signature provenance recorded in the public Rekor transparency log.
+    - name: Sign image with cosign
       env:
         TAGS: ${{ steps.push.outputs.tags }}
         DIGEST: ${{ steps.push.outputs.digest }}
@@ -494,15 +508,15 @@ jobs:
 
   ci-pass:
     if: always()
-    needs: [changes, static-check, build, test, integration-test, cve-check, e2e, publish-images]
+    needs: [changes, static-check, build, test, integration-test, cve-check, e2e, docker]
     timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed
         run: |
-          # publish-images is tag-gated; treat its 'skipped' result on non-tag
-          # runs as a pass. Code-gated jobs (static-check/build/test/IT) are
-          # also legitimately 'skipped' on docs-only PRs. Any 'failure' or
+          # docker is tag-gated; treat its 'skipped' result on non-tag runs
+          # as a pass. Code-gated jobs (static-check/build/test/IT) are also
+          # legitimately 'skipped' on docs-only PRs. Any 'failure' or
           # 'cancelled' result fails the gate.
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
             echo "One or more required jobs failed"

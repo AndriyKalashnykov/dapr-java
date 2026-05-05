@@ -305,7 +305,19 @@ ci-run: deps
 
 #cve-check: @ OWASP dependency vulnerability scan
 cve-check: deps-check
-	@mvn -B dependency-check:check $(if $(NVD_API_KEY),-DnvdApiKey=$(NVD_API_KEY))
+	@# Route the NVD API key through ~/.m2/settings.xml + -DnvdApiServerId=nvd
+	@# instead of -DnvdApiKey=$$VAR. The flag form would expand $$NVD_API_KEY
+	@# into mvn's argv at exec time and leak the value via `ps -ef` /
+	@# `/proc/<pid>/cmdline` for the entire ~30-min plugin lifetime
+	@# (settings.xml stays on disk with mode 0600). printf is a bash builtin —
+	@# the value never lands in argv.
+	@if [ -n "$$NVD_API_KEY" ]; then \
+		mkdir -p $$HOME/.m2; \
+		( umask 077 && printf '<settings><servers><server><id>nvd</id><password>%s</password></server></servers></settings>\n' "$$NVD_API_KEY" > $$HOME/.m2/settings.xml ); \
+		mvn -B dependency-check:check -DnvdApiServerId=nvd; \
+	else \
+		mvn -B dependency-check:check; \
+	fi
 
 #coverage-generate: @ Generate merged unit + integration coverage report
 coverage-generate: deps-check
@@ -471,9 +483,20 @@ kind-undeploy: deps-check
 	@$(KUBECTL) delete -f k8s/components-e2e.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/redis-e2e.yaml --ignore-not-found 2>/dev/null || true
 
-#kind-destroy: @ Delete the KinD cluster and stop cloud-provider-kind
+#kind-destroy: @ Delete the KinD cluster, stop cloud-provider-kind, prune kindccm-* orphans
 kind-destroy: deps-check
 	@docker rm -f cloud-provider-kind 2>/dev/null || true
+	@# cloud-provider-kind launches per-Service `kindccm-<hash>` Envoy sidecar
+	@# containers on the `kind` Docker network. They survive `kind delete
+	@# cluster` and hold IPs in the kind subnet — a subsequent `kind-up` can
+	@# land on an orphan's IP and inherit its stale Envoy config (pointed at
+	@# dead pods from the previous run), producing "Connection reset by peer"
+	@# on the first curl. Prune them before deleting the cluster.
+	@orphans=$$(docker ps -aq --filter 'name=kindccm-' 2>/dev/null); \
+	if [ -n "$$orphans" ]; then \
+		echo "Removing kindccm-* orphan sidecar(s)..."; \
+		echo "$$orphans" | xargs docker rm -f >/dev/null 2>&1 || true; \
+	fi
 	@kind delete cluster --name $(KIND_CLUSTER_NAME) 2>/dev/null || true
 
 #kind-up: @ Alias for kind-create + kind-deploy (full stack up)
