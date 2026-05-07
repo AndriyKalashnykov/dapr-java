@@ -29,7 +29,7 @@ C4Context
 |-----------|-----------|-----------|
 | Language | Java 21 LTS | Current LTS with virtual threads and pattern matching |
 | Framework | Spring Boot 4.0.6 | Current GA; provides embedded Tomcat, auto-configuration, and Actuator |
-| Runtime sidecar | Dapr 1.17.5 (Helm) / 1.17.2 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
+| Runtime sidecar | Dapr 1.17.6 (Helm) / 1.17.2 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
 | Dapr SDK | `dapr-spring-boot-4-starter` 1.17.2 | Latest stable on Maven Central; 1.17.3 is RC-only |
 | HTTP server | Embedded Tomcat 11.0.22 | Pinned in `dependencyManagement` to address CVEs |
 | JSON | Jackson 3.1.3 | Pinned to address CVE-reported 2.x transitive dependencies |
@@ -95,7 +95,7 @@ A customer interacts with the Pizza Store Platform over HTTPS / WebSocket; the p
 - **pizza-store** — frontend + backend; places orders via the Dapr state API (`kvstore`), invokes `kitchen-service`/`delivery-service` via Dapr service invocation, subscribes to `pubsub/topic` CloudEvents on `POST /events`, and pushes live status to the browser via WebSocket `/topic/events`.
 - **pizza-kitchen** — receives `PUT /prepare` through its Dapr sidecar; simulates cooking and publishes `ORDER_IN_PREPARATION` then `ORDER_READY` to the shared `pubsub` component on topic `topic`.
 - **pizza-delivery** — receives `PUT /deliver` through its sidecar; emits `ORDER_ON_ITS_WAY` (three times) and `ORDER_COMPLETED` as three-second stages advance.
-- **Dapr sidecar** (1.17.5, one per pod) — brokers all cross-service traffic; apps never address each other directly.
+- **Dapr sidecar** (1.17.6, one per pod) — brokers all cross-service traffic; apps never address each other directly.
 - **State Store** (`kvstore`) — PostgreSQL in production, Redis in e2e. The store applies `ORDER_READY` → `Status.delivery` and `ORDER_COMPLETED` → `Status.completed` as upserts to the same order id.
 - **PubSub** (`pubsub`, topic `topic`) — Kafka in production, Redis in e2e.
 
@@ -141,7 +141,7 @@ sequenceDiagram
 - Three pods in the `default` namespace, one per service (`pizza-store`, `pizza-kitchen`, `pizza-delivery`), each running a single replica with matching `dapr.io/app-id` annotations (`pizza-store`, `kitchen-service`, `delivery-service`).
 - Each pod co-locates the Spring Boot app container with a Dapr sidecar injected via the `dapr.io/enabled` annotation. Cross-pod service invocation flows app → local sidecar → remote sidecar → remote app over mTLS HTTP/gRPC; apps never address each other directly.
 - `pizza-store` is exposed through a `Service` of type `LoadBalancer`. On KinD that IP is provisioned by [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) (host-side controller, no in-cluster MetalLB); in production the cloud LB controller fills the same role. Service port 80 bridges to container port 8080.
-- The Dapr control plane (`dapr-operator`, `placement`, `sentry`, `injector`) runs in the `dapr-system` namespace via the official Helm chart (1.17.5).
+- The Dapr control plane (`dapr-operator`, `placement`, `sentry`, `injector`) runs in the `dapr-system` namespace via the official Helm chart (1.17.6).
 - PubSub and State Store components resolve to Redis for e2e (`k8s/components-e2e.yaml`) and to Kafka + PostgreSQL in production.
 
 Source files live in [`docs/diagrams/`](docs/diagrams/); regenerate the PNGs with `make diagrams`.
@@ -223,7 +223,7 @@ If a production-shaped cluster is already available, install the runtime compone
 helm repo add dapr https://dapr.github.io/helm-charts/
 helm repo update
 helm upgrade --install dapr dapr/dapr \
-  --version=1.17.5 \
+  --version=1.17.6 \
   --namespace dapr-system \
   --create-namespace \
   --wait

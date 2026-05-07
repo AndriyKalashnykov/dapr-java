@@ -338,9 +338,12 @@ jobs:
       continue-on-error: true
       with:
         target: ${{ steps.lb.outputs.url }}
-        # Standard baseline rules; cmd_options lets the action push a SARIF
-        # artifact upstream and a JSON report into the workflow run.
-        cmd_options: '-J zap-report.json -w zap-report.md'
+        # Don't override -J/-w via cmd_options: the action always injects
+        # `-J report_json.json -w report_md.md -r report_html.html` itself
+        # and then validates those files post-run. Custom -J/-w in cmd_options
+        # redirects ZAP's output away from the action's expected names,
+        # making the action emit `##[error]File ... does not exist` even
+        # though continue-on-error is set.
         fail_action: false
         allow_issue_writing: false
 
@@ -350,12 +353,13 @@ jobs:
       continue-on-error: true
       with:
         name: zap-baseline-report
+        # zaproxy/action-baseline always produces these three files via its
+        # internal `-J report_json.json -w report_md.md -r report_html.html`
+        # invocation.
         path: |
-          zap-report.json
-          zap-report.md
-          report_html.html
-          report_md.md
           report_json.json
+          report_md.md
+          report_html.html
         retention-days: 14
         if-no-files-found: ignore
 
@@ -586,7 +590,7 @@ jobs:
         } >> "$GITHUB_OUTPUT"
 
     - name: Install cosign
-      uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
     # Keyless OIDC signing via Sigstore Fulcio — no key material to manage,
     # signature provenance recorded in the public Rekor transparency log.

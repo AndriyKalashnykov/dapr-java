@@ -38,13 +38,13 @@ GJF_VERSION := 1.35.0
 # renovate: datasource=docker depName=registry.k8s.io/cloud-provider-kind/cloud-controller-manager
 CLOUD_PROVIDER_KIND_VERSION := 0.10.0
 # renovate: datasource=docker depName=kindest/node
-KIND_NODE_IMAGE := kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+KIND_NODE_IMAGE := kindest/node:v1.35.1@sha256:05d7bcdefbda08b4e038f644c4df690cdac3fba8b06f8289f30e10026720a1ab
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
-DAPR_HELM_VERSION := 1.17.5
+DAPR_HELM_VERSION := 1.17.6
 # renovate: datasource=docker depName=plantuml/plantuml
 PLANTUML_VERSION := 1.2026.2
 # renovate: datasource=docker depName=minlag/mermaid-cli
-MERMAID_CLI_VERSION := 11.12.0
+MERMAID_CLI_VERSION := 11.14.0
 
 # === Diagrams ===
 DIAGRAM_DIR := docs/diagrams
