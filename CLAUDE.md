@@ -177,16 +177,17 @@ Running multiple KinD clusters on the shared default `kind` Docker network cause
 
 ## Upgrade Backlog
 
-Last reviewed: 2026-05-05 (post `/upgrade-analysis` Wave 1 patches)
+Last reviewed: 2026-05-07 (no actionable items outside Renovate; backlog unchanged from 2026-05-05 except K8s 1.36 GA signal noted below)
 
 - [ ] **Maven 4.0 migration** — plan when Maven 4.0 reaches GA (currently RC-5)
 - [ ] **Spring Boot 4.0 → 4.1 migration** — Spring Boot 4.0 OSS support ends **2026-12-31**. 4.1 GA is expected Q4 2026 (currently 4.1.0-RC1). Project commits to staying on the Spring Boot 4.x line; start the 4.0 → 4.1 migration plan ~Q3 2026 to land before EOL.
 - [ ] **Alpha dependencies** — `opentelemetry-instrumentation-bom-alpha`, `wiremock-testcontainers` 1.0-alpha-15. Track GA releases.
-- [ ] **`dapr-spring-boot-4-starter` 1.17.3 GA on Maven Central** — currently `1.17.3-rc-1` only. Bump `dapr.version` (and `testcontainers-dapr.version`, since they're the same property) when GA lands. Runtime is already on 1.17.5/1.17.6 — runtime-ahead-of-SDK is normal Dapr Java cadence.
+- [ ] **`dapr-spring-boot-4-starter` 1.17.3 GA on Maven Central** — currently `1.17.3-rc-1` only. Bump `dapr.version` (and `testcontainers-dapr.version`, since they're the same property) when GA lands. Runtime/Helm chart is already on 1.17.6 — runtime-ahead-of-SDK is normal Dapr Java cadence.
 - [ ] **WireMock 4.0 GA** — currently `4.0.0-beta.10` upstream; project on stable `3.13.2`. Watch for 4.0 GA before bumping.
 - [ ] **Single-app DaprContainer limitation** — upstream-blocked: `dapr/java-sdk:testcontainers-dapr/.../DaprContainer.java` exposes only single `appName/appPort/appChannelAddress` fields (no peer-app registration). Workaround in `KitchenInvocationIT` / `DeliveryInvocationIT`: override `DAPR_HTTP_ENDPOINT` to a WireMock receiver — verifies the emitted HTTP contract (verb, path, body) but bypasses the sidecar invoke hop. The full sidecar→app→sidecar path is covered by the KinD e2e via `make e2e`. Re-wire once upstream adds multi-app support.
-- [ ] **kindest/node v1.36 + kubectl 1.36** — KinD 0.31.0 (2025-12-18) shipped node `v1.35.0`; next minor likely brings v1.36. Bump `kubectl` from 1.35.4 to 1.36.x only after the matching node image lands so cluster ↔ kubectl skew stays at +1 minor max.
+- [ ] **kindest/node v1.36 + kubectl 1.36** — Kubernetes 1.36.0 GA'd 2026-05-07. KinD 0.31.0 (2025-12-18) currently ships node `v1.35.0` (latest patch v1.35.1); a `kindest/node:v1.36.x` typically follows the K8s GA by 2-4 weeks. Bump `kubectl` from 1.35.4 to 1.36.x only after the matching node image lands so cluster ↔ kubectl skew stays at +1 minor max.
 - [ ] **`zaproxy/action-baseline` v0.16+** — pinned to `v0.15.0` (2025-10-24). Bump after the first ZAP run produces a clean baseline so reports stay comparable across runs.
+- [ ] **Architecture diagram + README tech-stack drift** — `docs/diagrams/c4-container.puml`, `docs/diagrams/c4-deployment.puml`, and the README "Tech Stack" table hardcode framework/version strings (e.g. `"Spring Boot 4.0.6, Java 21"`, Dapr Helm chart version). Renovate cannot update technology strings inside `Container(...)` labels or README prose. After any Renovate-driven Spring Boot or Dapr patch bump, run `/architecture-diagrams` and `/readme` to re-sync these strings.
 
 ## Skills
 

@@ -1,6 +1,6 @@
 [tools]
 # renovate: datasource=java-version depName=java
-java = "temurin-21.0.10+7.0.LTS"
+java = "temurin-21.0.11+10.0.LTS"
 # renovate: datasource=maven depName=org.apache.maven:apache-maven
 maven = "3.9.15"
 # renovate: datasource=node-version depName=node

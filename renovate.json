@@ -145,6 +145,13 @@
       ]
     },
     {
+      "description": "Group Netty dependencies",
+      "groupName": "Netty",
+      "matchPackageNames": [
+        "/^io\\.netty/"
+      ]
+    },
+    {
       "description": "Group GitHub Actions into one PR",
       "groupName": "GitHub Actions",
       "matchManagers": [
