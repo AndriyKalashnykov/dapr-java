@@ -34,10 +34,11 @@ C4Context
 | HTTP server | Embedded Tomcat 11.0.22 | Pinned in `dependencyManagement` to address CVEs |
 | JSON | Jackson 3.1.3 | Pinned to address CVE-reported 2.x transitive dependencies |
 | gRPC | gRPC 1.81.0 | Pinned to address CVEs in older Spring-Boot-managed version |
+| Netty | Netty 4.2.13.Final (BOM) | Pinned via BOM ordered ahead of `spring-boot-dependencies` to address [CVE-2026-42583](https://avd.aquasec.com/nvd/cve-2026-42583) (Lz4FrameDecoder), [CVE-2026-42584](https://avd.aquasec.com/nvd/cve-2026-42584) (HttpClientCodec desync), [CVE-2026-42587](https://avd.aquasec.com/nvd/cve-2026-42587) (HttpContentDecompressor) |
 | Build | Maven 3.9.15 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
 | Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy + gitleaks | Composite `make static-check` gate |
-| Diagram lint | PlantUML 1.2026.2 (`make diagrams-check`) + mermaid-cli 11.12.0 (`make mermaid-lint`) | Wired into `make static-check` |
+| Diagram lint | PlantUML 1.2026.2 (`make diagrams-check`) + mermaid-cli 11.14.0 (`make mermaid-lint`) | Wired into `make static-check` |
 | Manifest validation | kubeconform 0.7.0 (`make k8s-validate`, vendored OpenAPI — no cluster needed) | Validates both `k8s/` and `k8s-dapr-shared/` on every push |
 | Coverage | JaCoCo (80% min, enforced) | Enforced by `make coverage-check` |
 | Version manager | [mise](https://mise.jdx.dev/) | Pins Java/Maven/Node via `.mise.toml` |
@@ -295,7 +296,7 @@ Run `make help` to see all available targets.
 | `make secrets` | Scan git history and tree for leaked secrets (gitleaks) |
 | `make deps-prune` | Analyze Maven dependencies (advisory) |
 | `make deps-prune-check` | Fail if unused declared Maven dependencies exist |
-| `make cve-check` | OWASP dependency vulnerability scan (advisory; bundled into `make pre-release` with a 300 s timeout wrapper) |
+| `make cve-check` | OWASP dependency vulnerability scan (strict; bundled into `make pre-release`, also runs on tag pushes, weekly cron Mon 06:00 UTC, and `workflow_dispatch`) |
 | `make image-scan` | Scan built `pizza-*:e2e` OCI images for HIGH/CRITICAL CVEs with fixes (closes Paketo/CNB blind spot that `trivy-fs` and `cve-check` miss) |
 | `make coverage-generate` | Generate JaCoCo coverage report (merged surefire + failsafe) |
 | `make coverage-check` | Verify merged coverage meets minimum threshold (80%) |
@@ -351,7 +352,7 @@ Run `make help` to see all available targets.
 | `make print-deps-updates` | Print project dependency updates |
 | `make update-deps` | Update dependencies to latest releases |
 | `make renovate-validate` | Validate Renovate configuration |
-| `make pre-release` | Pre-release gate: `cve-check` (advisory, 300 s timeout) + `image-scan` (strict). Required before `make release` |
+| `make pre-release` | Pre-release gate: `cve-check` + `image-scan` (both strict). Required before `make release` |
 | `make release VERSION=x.y.z` | Create a semver release tag (auto-runs `make pre-release`) |
 
 ## CI/CD
@@ -365,7 +366,7 @@ GitHub Actions runs on push to `main`, tags `v*`, pull requests, a weekly schedu
 | **build** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make build`; tag-gated artifact upload of `pizza-*/target/*.jar` |
 | **test** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make test` (Surefire unit tests only — fast feedback) |
 | **integration-test** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make coverage-generate` + `make coverage-check`; runs surefire + failsafe + merged-coverage gate; uploads JaCoCo report |
-| **cve-check** | tag push, weekly cron (Mon 06:00 UTC), `workflow_dispatch` | `static-check` | `make cve-check` (OWASP dependency-check), NVD cache, HTML report upload; `continue-on-error` until upstream NVD deserializer fix |
+| **cve-check** | tag push, weekly cron (Mon 06:00 UTC), `workflow_dispatch` | `static-check` | `make cve-check` (OWASP dependency-check 12.2.2 — strict gate), NVD cache, HTML report upload |
 | **e2e** | push to `main`/tag, PR label `run-e2e` or `e2e` flag, `workflow_dispatch` | `changes`, `build`, `test` | `jdx/mise-action` installs kind/kubectl/helm/trivy/gitleaks/kubeconform/websocat via `mise`, then `make e2e` (now includes K1.5 route-readiness poll + WebSocket broadcast assertion via `websocat`); followed by an OWASP ZAP baseline DAST scan against the LB-exposed pizza-store. Collects pod logs + cluster events on failure |
 | **docker** | tag push only | `static-check`, `build`, `test`, `integration-test`, `cve-check`, `e2e` | Per-service-per-arch matrix (6 runners total: `{pizza-store, pizza-kitchen, pizza-delivery} × {amd64, arm64}`; arm64 runs on `ubuntu-24.04-arm`). GATE 1+2: `make image-scan` builds via `spring-boot:build-image` (Paketo CNB, native arch only) and runs `trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`. GATE 3: Spring Boot boot-marker smoke test (90 s timeout, fails on missing classes / port-bind / broken auto-config). Each runner pushes its per-arch tag `ghcr.io/<owner>/<repo>/pizza-*:<version>-<arch>` |
 | **docker-manifest** | tag push only | `docker` | Per-service matrix. Assembles a multi-arch manifest list with `docker buildx imagetools create` from the per-arch refs, pushes both `:<version>` and `:latest` to GHCR, and signs the manifest digest with [cosign keyless OIDC](https://docs.sigstore.dev/cosign/keyless/) (Sigstore Fulcio, no key material to manage; one signature covers both archs and is recorded in the public Rekor transparency log) |
