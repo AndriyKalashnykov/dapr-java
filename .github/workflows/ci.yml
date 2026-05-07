@@ -338,9 +338,12 @@ jobs:
       continue-on-error: true
       with:
         target: ${{ steps.lb.outputs.url }}
-        # Standard baseline rules; cmd_options lets the action push a SARIF
-        # artifact upstream and a JSON report into the workflow run.
-        cmd_options: '-J zap-report.json -w zap-report.md'
+        # Don't override -J/-w via cmd_options: the action always injects
+        # `-J report_json.json -w report_md.md -r report_html.html` itself
+        # and then validates those files post-run. Custom -J/-w in cmd_options
+        # redirects ZAP's output away from the action's expected names,
+        # making the action emit `##[error]File ... does not exist` even
+        # though continue-on-error is set.
         fail_action: false
         allow_issue_writing: false
 
@@ -350,14 +353,13 @@ jobs:
       continue-on-error: true
       with:
         name: zap-baseline-report
-        # zaproxy/action-baseline with `-J zap-report.json -w zap-report.md`
-        # produces exactly these two files. Listing speculative alternate
-        # names (report_*.{html,md,json}) makes upload-artifact emit
-        # per-path "does not exist" annotations — `if-no-files-found: ignore`
-        # only suppresses the "no files at all" case, not per-path misses.
+        # zaproxy/action-baseline always produces these three files via its
+        # internal `-J report_json.json -w report_md.md -r report_html.html`
+        # invocation.
         path: |
-          zap-report.json
-          zap-report.md
+          report_json.json
+          report_md.md
+          report_html.html
         retention-days: 14
         if-no-files-found: ignore
 
