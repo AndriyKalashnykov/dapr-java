@@ -28,7 +28,7 @@ Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
   }
 
   Deployment_Node(daprSys, "Namespace: dapr-system") {
-    Container(daprCtrl, "Dapr control plane", "Helm chart dapr 1.17.5 — operator, placement, sentry, injector")
+    Container(daprCtrl, "Dapr control plane", "Helm chart dapr 1.17.6 — operator, placement, sentry, injector")
   }
 }
 

@@ -205,7 +205,11 @@ deps-prune: deps-check
 
 #deps-prune-check: @ Fail if unused declared Maven dependencies exist (CI gate)
 deps-prune-check: deps-check
-	@if mvn -B dependency:analyze 2>&1 | grep -qE '^\[WARNING\] Unused declared'; then \
+	@# pipefail required: without it, a `mvn` crash before the WARNING line
+	@# returns grep's exit code only — a build-tool failure would silently
+	@# pass this gate. SHELL := /bin/bash is set at top of Makefile.
+	@set -o pipefail; \
+	if mvn -B dependency:analyze 2>&1 | grep -qE '^\[WARNING\] Unused declared'; then \
 		echo "ERROR: unused declared Maven dependencies found. Run 'make deps-prune' to see details."; \
 		exit 1; \
 	fi
@@ -263,8 +267,14 @@ static-check: format-check lint trivy-fs trivy-config secrets diagrams-check mer
 run: build
 	@mvn -B spring-boot:run -Ddependency-check.skip=true
 
-#ci: @ Run local CI pipeline (clean, static-check, test, integration-test, build, coverage-check). cve-check is separate — run `make cve-check` explicitly.
-ci: clean deps static-check test integration-test build coverage-check
+#ci: @ Run local CI pipeline (clean, static-check, coverage-generate, coverage-check, build). cve-check is separate — run `make cve-check` explicitly.
+# coverage-generate runs `mvn verify -P integration-test` which executes BOTH
+# Surefire (unit) and Failsafe (integration) tests once and merges their
+# JaCoCo exec files. Listing `test` and `integration-test` separately would
+# triple-run the suite (test runs surefire; integration-test runs failsafe;
+# coverage-generate re-runs both via verify). The producer-once chain saves
+# ~30-60s per `make ci` invocation.
+ci: clean deps static-check coverage-generate coverage-check build
 
 #ci-run: @ Run GitHub Actions workflow locally using act (jobs serialized)
 ci-run: deps
@@ -341,7 +351,17 @@ coverage-generate: deps-check
 	@mvn -B verify -P integration-test -Ddependency-check.skip=true jacoco:report
 
 #coverage-check: @ Verify merged coverage meets minimum threshold (>=80%)
-coverage-check: coverage-generate
+# Does NOT depend on coverage-generate so the `ci:` chain can run
+# coverage-generate once and have coverage-check run guards-only against
+# the existing merged exec files. Standalone usage: run `make
+# coverage-generate` (or `make integration-test`) first.
+coverage-check: deps-check
+	@for d in $(SERVICES); do \
+		if [ ! -f "$$d/target/jacoco-merged.exec" ]; then \
+			echo "ERROR: $$d/target/jacoco-merged.exec missing — run 'make coverage-generate' first."; \
+			exit 1; \
+		fi; \
+	done
 	@mvn -B jacoco:check
 
 #coverage-open: @ Open code coverage report
