@@ -350,12 +350,14 @@ jobs:
       continue-on-error: true
       with:
         name: zap-baseline-report
+        # zaproxy/action-baseline with `-J zap-report.json -w zap-report.md`
+        # produces exactly these two files. Listing speculative alternate
+        # names (report_*.{html,md,json}) makes upload-artifact emit
+        # per-path "does not exist" annotations — `if-no-files-found: ignore`
+        # only suppresses the "no files at all" case, not per-path misses.
         path: |
           zap-report.json
           zap-report.md
-          report_html.html
-          report_md.md
-          report_json.json
         retention-days: 14
         if-no-files-found: ignore
 
