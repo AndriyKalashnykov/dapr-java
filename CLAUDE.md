@@ -173,7 +173,8 @@ Running multiple KinD clusters on the shared default `kind` Docker network cause
 
 - E2E asserts the WebSocket broadcast end-to-end via `websocat` (mise tool, `cargo:websocat 1.14.0`) — regression guard for the PUBLIC_IP-hardcoded bug retired 2026-04-26.
 - `make k8s-validate` (kubeconform) validates `k8s/` and `k8s-dapr-shared/` against vendored OpenAPI on every push, so drift in the unused alternate "shared sidecar" topology surfaces immediately.
-- `e2e` job runs an OWASP ZAP baseline DAST scan against the LB-exposed pizza-store after the assertion suite passes (`continue-on-error: true` while baseline budget is established).
+- `e2e` job runs an OWASP ZAP baseline DAST scan against the LB-exposed pizza-store after the assertion suite passes (`continue-on-error: true` while baseline budget is established). The action is pinned at `zaproxy/action-baseline@v0.15.0` until the first clean baseline produces comparable reports — promote ZAP to strict (and bump to v0.16+ if available) together once that lands. This is an internal-policy pin, not an upstream-blocked dep.
+- The OpenTelemetry instrumentation BOM is consumed via the `opentelemetry-instrumentation-bom-alpha` artifact id. The `-alpha` suffix is the upstream namespace for incubating instrumentation modules — it is the production-shipped artifact name, not a stability signal, and it does not "graduate" to a non-alpha BOM. Treat as the steady-state coordinate.
 
 ### Documentation drift across Renovate-driven version bumps
 
@@ -185,12 +186,11 @@ Last reviewed: 2026-05-07 (no actionable items outside Renovate; backlog unchang
 
 - [ ] **Maven 4.0 migration** — plan when Maven 4.0 reaches GA (currently RC-5)
 - [ ] **Spring Boot 4.0 → 4.1 migration** — Spring Boot 4.0 OSS support ends **2026-12-31**. 4.1 GA is expected Q4 2026 (currently 4.1.0-RC1). Project commits to staying on the Spring Boot 4.x line; start the 4.0 → 4.1 migration plan ~Q3 2026 to land before EOL.
-- [ ] **Alpha dependencies** — `opentelemetry-instrumentation-bom-alpha`, `wiremock-testcontainers` 1.0-alpha-15. Track GA releases.
+- [ ] **`wiremock-testcontainers` GA** — currently `1.0-alpha-15` upstream. Track GA release. (Note: `opentelemetry-instrumentation-bom-alpha` is NOT a backlog item — see Key Config "Test coverage extras" for the rationale.)
 - [ ] **`dapr-spring-boot-4-starter` 1.17.3 GA on Maven Central** — currently `1.17.3-rc-1` only. Bump `dapr.version` (and `testcontainers-dapr.version`, since they're the same property) when GA lands. Runtime/Helm chart is already on 1.17.6 — runtime-ahead-of-SDK is normal Dapr Java cadence.
 - [ ] **WireMock 4.0 GA** — currently `4.0.0-beta.10` upstream; project on stable `3.13.2`. Watch for 4.0 GA before bumping.
 - [ ] **Single-app DaprContainer limitation** — upstream-blocked: `dapr/java-sdk:testcontainers-dapr/.../DaprContainer.java` exposes only single `appName/appPort/appChannelAddress` fields (no peer-app registration). Workaround in `KitchenInvocationIT` / `DeliveryInvocationIT`: override `DAPR_HTTP_ENDPOINT` to a WireMock receiver — verifies the emitted HTTP contract (verb, path, body) but bypasses the sidecar invoke hop. The full sidecar→app→sidecar path is covered by the KinD e2e via `make e2e`. Re-wire once upstream adds multi-app support.
 - [ ] **kindest/node v1.36 + kubectl 1.36** — Kubernetes 1.36.0 GA'd 2026-05-07. KinD 0.31.0 (2025-12-18) currently ships node `v1.35.0` (latest patch v1.35.1); a `kindest/node:v1.36.x` typically follows the K8s GA by 2-4 weeks. Bump `kubectl` from 1.35.4 to 1.36.x only after the matching node image lands so cluster ↔ kubectl skew stays at +1 minor max.
-- [ ] **`zaproxy/action-baseline` v0.16+** — pinned to `v0.15.0` (2025-10-24). Bump after the first ZAP run produces a clean baseline so reports stay comparable across runs.
 
 ## Skills
 
