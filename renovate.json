@@ -9,6 +9,7 @@
     "maven",
     "github-actions",
     "kubernetes",
+    "mise",
     "custom.regex"
   ],
   "kubernetes": {
@@ -20,13 +21,12 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Update Makefile/.mise.toml tool versions via inline renovate comments",
+      "description": "Update Makefile tool versions via inline renovate comments. .mise.toml is handled by the native `mise` manager — do not add it here (would duplicate every dep).",
       "managerFilePatterns": [
-        "/(^|/)Makefile$/",
-        "/(^|/)\\.mise\\.toml$/"
+        "/(^|/)Makefile$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-z-]+?)(?: depName=(?<depName>[^\\s]+?))?(?: packageName=(?<packageName>[^\\s]+?))?(?: versioning=(?<versioning>[a-z-]+?))?\\s+\\S+?\\s*[:=]?\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+        "# renovate: datasource=(?<datasource>[a-z-]+?)(?: depName=(?<depName>[^\\s]+?))?(?: packageName=(?<packageName>[^\\s]+?))?(?: versioning=(?<versioning>[a-z-]+?))?\\s+\\S+?\\s*[?:]?=\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
       ]
     }
   ],
