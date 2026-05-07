@@ -175,6 +175,10 @@ Running multiple KinD clusters on the shared default `kind` Docker network cause
 - `make k8s-validate` (kubeconform) validates `k8s/` and `k8s-dapr-shared/` against vendored OpenAPI on every push, so drift in the unused alternate "shared sidecar" topology surfaces immediately.
 - `e2e` job runs an OWASP ZAP baseline DAST scan against the LB-exposed pizza-store after the assertion suite passes (`continue-on-error: true` while baseline budget is established).
 
+### Documentation drift across Renovate-driven version bumps
+
+`docs/diagrams/c4-container.puml`, `docs/diagrams/c4-deployment.puml`, and the README "Tech Stack" table hardcode framework/version strings (Spring Boot, Java, Dapr Helm chart). Renovate cannot update technology strings inside `Container(...)` PUML labels or README prose — both files drift silently after a Spring Boot or Dapr patch bump lands. After any such Renovate-driven bump, run `/architecture-diagrams` and `/readme` to re-sync these strings; do NOT rely on the diagrams-check or mermaid-lint gates to catch this — they validate parse, not content.
+
 ## Upgrade Backlog
 
 Last reviewed: 2026-05-07 (no actionable items outside Renovate; backlog unchanged from 2026-05-05 except K8s 1.36 GA signal noted below)
@@ -187,7 +191,6 @@ Last reviewed: 2026-05-07 (no actionable items outside Renovate; backlog unchang
 - [ ] **Single-app DaprContainer limitation** — upstream-blocked: `dapr/java-sdk:testcontainers-dapr/.../DaprContainer.java` exposes only single `appName/appPort/appChannelAddress` fields (no peer-app registration). Workaround in `KitchenInvocationIT` / `DeliveryInvocationIT`: override `DAPR_HTTP_ENDPOINT` to a WireMock receiver — verifies the emitted HTTP contract (verb, path, body) but bypasses the sidecar invoke hop. The full sidecar→app→sidecar path is covered by the KinD e2e via `make e2e`. Re-wire once upstream adds multi-app support.
 - [ ] **kindest/node v1.36 + kubectl 1.36** — Kubernetes 1.36.0 GA'd 2026-05-07. KinD 0.31.0 (2025-12-18) currently ships node `v1.35.0` (latest patch v1.35.1); a `kindest/node:v1.36.x` typically follows the K8s GA by 2-4 weeks. Bump `kubectl` from 1.35.4 to 1.36.x only after the matching node image lands so cluster ↔ kubectl skew stays at +1 minor max.
 - [ ] **`zaproxy/action-baseline` v0.16+** — pinned to `v0.15.0` (2025-10-24). Bump after the first ZAP run produces a clean baseline so reports stay comparable across runs.
-- [ ] **Architecture diagram + README tech-stack drift** — `docs/diagrams/c4-container.puml`, `docs/diagrams/c4-deployment.puml`, and the README "Tech Stack" table hardcode framework/version strings (e.g. `"Spring Boot 4.0.6, Java 21"`, Dapr Helm chart version). Renovate cannot update technology strings inside `Container(...)` labels or README prose. After any Renovate-driven Spring Boot or Dapr patch bump, run `/architecture-diagrams` and `/readme` to re-sync these strings.
 
 ## Skills
 
