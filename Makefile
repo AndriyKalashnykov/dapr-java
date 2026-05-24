@@ -47,11 +47,11 @@ KIND_NODE_VERSION := v1.35.1
 KIND_NODE_DIGEST := sha256:05d7bcdefbda08b4e038f644c4df690cdac3fba8b06f8289f30e10026720a1ab
 KIND_NODE_IMAGE := kindest/node:$(KIND_NODE_VERSION)@$(KIND_NODE_DIGEST)
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
-DAPR_HELM_VERSION := 1.17.6
+DAPR_HELM_VERSION := 1.17.7
 # renovate: datasource=docker depName=plantuml/plantuml
-PLANTUML_VERSION := 1.2026.2
+PLANTUML_VERSION := 1.2026.4
 # renovate: datasource=docker depName=minlag/mermaid-cli
-MERMAID_CLI_VERSION := 11.14.0
+MERMAID_CLI_VERSION := 11.15.0
 
 # === Diagrams ===
 DIAGRAM_DIR := docs/diagrams
