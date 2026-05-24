@@ -14,19 +14,19 @@
   ],
   "kubernetes": {
     "managerFilePatterns": [
-      "/(^|/)k8s/[^/]+\\.yaml$/",
-      "/(^|/)k8s-dapr-shared/[^/]+\\.yaml$/"
+      "/(^|/)k8s/.+\\.yaml$/",
+      "/(^|/)k8s-dapr-shared/.+\\.yaml$/"
     ]
   },
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Update Makefile tool versions via inline renovate comments. .mise.toml is handled by the native `mise` manager — do not add it here (would duplicate every dep).",
+      "description": "Update Makefile tool versions via inline renovate comments. Accepts datasource + depName, plus any subset of packageName/versioning/extractVersion/registryUrl in that order on the annotation line. .mise.toml is handled by the native `mise` manager — do not add it here (would duplicate every dep).",
       "managerFilePatterns": [
         "/(^|/)Makefile$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-z-]+?)(?: depName=(?<depName>[^\\s]+?))?(?: packageName=(?<packageName>[^\\s]+?))?(?: versioning=(?<versioning>[a-z-]+?))?\\s+\\S+?\\s*[?:]?=\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)(?:\\s+packageName=(?<packageName>\\S+))?(?:\\s+versioning=(?<versioning>[a-z-]+))?(?:\\s+extractVersion=(?<extractVersion>\\S+))?(?:\\s+registryUrl=(?<registryUrl>\\S+))?\\s*\\n[A-Z_]+\\s*[?:]?=\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
       ]
     }
   ],
@@ -157,6 +157,29 @@
       "matchManagers": [
         "github-actions"
       ]
+    },
+    {
+      "description": "Group Makefile inline `# renovate:` tool versions into a single PR",
+      "groupName": "Makefile tools",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "Makefile"
+      ]
+    },
+    {
+      "description": "Disable digest pinning for Makefile-tracked docker dev tools (plantuml, mermaid-cli, cloud-provider-kind). The `docker:pinDigests` preset (from config:best-practices) otherwise generates a `pinDigest` update that collides with the version bump on the `renovate/makefile-tools` branch and silently suppresses the bump. Makefile-tracked deps are dev/lint tools, not production runtime — tag pinning is sufficient. Production-runtime docker pins (k8s `image:` fields) keep their digest pins via the same preset.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "Makefile"
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "pinDigests": false
     }
   ]
 }

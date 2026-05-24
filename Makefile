@@ -22,7 +22,10 @@ CURRENTTAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 #
 # Constants below are for tools that mise cannot manage:
 #   - GJF_VERSION:                  jar download (no binary)
-#   - KIND_NODE_IMAGE:              Docker image (not a host binary)
+#   - KIND_NODE_VERSION+DIGEST:     Docker image (not a host binary). Split
+#                                   into tag + digest so Renovate's `docker`
+#                                   manager + `docker:pinDigests` preset both
+#                                   resolve cleanly without colliding.
 #   - DAPR_HELM_VERSION:            Helm chart version (not a binary)
 #   - PLANTUML_VERSION:             Docker image
 #   - MERMAID_CLI_VERSION:          Docker image
@@ -38,7 +41,11 @@ GJF_VERSION := 1.35.0
 # renovate: datasource=docker depName=registry.k8s.io/cloud-provider-kind/cloud-controller-manager
 CLOUD_PROVIDER_KIND_VERSION := 0.10.0
 # renovate: datasource=docker depName=kindest/node
-KIND_NODE_IMAGE := kindest/node:v1.35.1@sha256:05d7bcdefbda08b4e038f644c4df690cdac3fba8b06f8289f30e10026720a1ab
+KIND_NODE_VERSION := v1.35.1
+# Digest pin for KIND_NODE_VERSION above (kindest/node@sha256:...). Renovate's
+# `docker:pinDigests` preset keeps this in sync with the tag via its own update.
+KIND_NODE_DIGEST := sha256:05d7bcdefbda08b4e038f644c4df690cdac3fba8b06f8289f30e10026720a1ab
+KIND_NODE_IMAGE := kindest/node:$(KIND_NODE_VERSION)@$(KIND_NODE_DIGEST)
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
 DAPR_HELM_VERSION := 1.17.6
 # renovate: datasource=docker depName=plantuml/plantuml
@@ -218,7 +225,18 @@ deps-prune-check: deps-check
 #diagrams: @ Render PlantUML architecture diagrams to PNG under docs/diagrams/out/
 diagrams: $(DIAGRAM_OUT)
 
-$(DIAGRAM_DIR)/out/%.png: $(DIAGRAM_DIR)/%.puml $(DIAGRAM_DIR)/_skinparam.iuml
+PLANTUML_STAMP := $(DIAGRAM_DIR)/out/.plantuml-$(PLANTUML_VERSION).stamp
+
+# Version-stamped sentinel forces a re-render when PLANTUML_VERSION bumps.
+# Without it, a Renovate-driven version bump without a `.puml` edit would
+# leave stale PNGs committed and `diagrams-check`'s `git diff --exit-code`
+# would pass on pre-bump output.
+$(PLANTUML_STAMP):
+	@mkdir -p $(DIAGRAM_DIR)/out
+	@rm -f $(DIAGRAM_DIR)/out/.plantuml-*.stamp
+	@touch $@
+
+$(DIAGRAM_DIR)/out/%.png: $(DIAGRAM_DIR)/%.puml $(DIAGRAM_DIR)/_skinparam.iuml $(PLANTUML_STAMP)
 	@mkdir -p $(DIAGRAM_DIR)/out
 	@docker run --rm -u $$(id -u):$$(id -g) \
 		-v "$(CURDIR)/$(DIAGRAM_DIR):/work" -w /work \
@@ -416,6 +434,23 @@ image-scan: image-build
 			|| { echo "FAIL: trivy image scan found fixable HIGH/CRITICAL CVEs in $$svc:$(E2E_IMAGE_TAG)"; exit 1; }; \
 	done
 
+#image-test: @ Validate Paketo CNB image contract (USER nonroot, entrypoint, layered-JAR layout) via container-structure-test
+image-test: image-build
+	@# Asserts the structural contract Paketo CNB produces against the
+	@# committed compose/structure-test/paketo.yaml: nonroot user (UID
+	@# 1002:1001), entrypoint /cnb/process/web, /workspace/BOOT-INF
+	@# Spring Boot layered-JAR layout, no /bin/sh or apt/curl leaked from
+	@# the run-image base. Catches Paketo upstream regressions earlier
+	@# than the runtime smoke test. mise installs the binary via the
+	@# aqua backend (pinned in .mise.toml).
+	@for svc in $(SERVICES); do \
+		echo "--- Structure-testing image $$svc:$(E2E_IMAGE_TAG) ---"; \
+		container-structure-test test \
+			--image $$svc:$(E2E_IMAGE_TAG) \
+			--config compose/structure-test/paketo.yaml \
+			|| { echo "FAIL: structure-test contract violation in $$svc:$(E2E_IMAGE_TAG)"; exit 1; }; \
+	done
+
 #kind-create: @ Create KinD cluster, start cloud-provider-kind LB controller, install Dapr via Helm
 kind-create: deps-check
 	@# Preflight: warn if sibling KinD clusters share the default `kind` Docker
@@ -580,12 +615,16 @@ e2e: kind-up
 
 #pre-release: @ Run every slow gate that's NOT in `make ci` (cve-check + image-scan). Required before `make release`.
 pre-release:
-	@# cve-check + image-scan are both strict gates. dependency-check 12.2.2
-	@# (2026-05-03) ships the open-vulnerability-clients fix for the NVD
-	@# 9-digit nanosecond timestamp deserializer bug (PR #8427), so the
-	@# previous `timeout 300` + soft-fail wrapper is no longer needed.
+	@# cve-check + image-scan + image-test are all strict gates.
+	@# dependency-check 12.2.2 (2026-05-03) ships the open-vulnerability-
+	@# clients fix for the NVD 9-digit nanosecond timestamp deserializer
+	@# bug (PR #8427), so the previous `timeout 300` + soft-fail wrapper
+	@# is no longer needed. image-test asserts the Paketo CNB image
+	@# contract (USER, entrypoint, layered-JAR layout) so a Paketo
+	@# upstream regression is caught before tagging.
 	@$(MAKE) cve-check
 	@$(MAKE) image-scan
+	@$(MAKE) image-test
 	@echo "Pre-release gates passed."
 
 #release: @ Create a release tag with semver validation (usage: make release VERSION=x.y.z)
@@ -610,7 +649,7 @@ release: pre-release
 	trivy-fs trivy-config secrets deps-prune deps-prune-check static-check run \
 	ci ci-run cve-check coverage-generate coverage-check coverage-open \
 	print-deps-updates update-deps renovate-validate \
-	image-build image-scan kind-create kind-deploy kind-undeploy kind-destroy \
+	image-build image-scan image-test kind-create kind-deploy kind-undeploy kind-destroy \
 	kind-up kind-down e2e pre-release release \
 	diagrams diagrams-clean diagrams-check mermaid-lint k8s-validate \
 	k8s-shared-deploy k8s-shared-undeploy

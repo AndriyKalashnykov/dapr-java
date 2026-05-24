@@ -25,3 +25,10 @@ kubeconform = "0.7.0"
 # both fresh laptops and CI cold runners; the cargo: backend would compile
 # from source for ~1-2 min on cold cache).
 "aqua:vi/websocat" = "1.14.1"
+# container-structure-test asserts the Paketo CNB image contract (USER
+# nonroot, entrypoint, working dir, /cnb/lifecycle/launcher presence,
+# Spring Boot layered-JAR layout). Catches regressions in the upstream
+# Paketo Java buildpack contract that the smoke test would otherwise
+# only surface at runtime. Driven by `make image-test` and the CI
+# `image-scan` job's Structure test step. Used by /image-test.
+"aqua:GoogleContainerTools/container-structure-test" = "1.22.1"
