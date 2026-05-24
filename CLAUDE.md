@@ -30,25 +30,28 @@ make diagrams-check                     # Verify committed PNGs match .puml sour
 make mermaid-lint                       # Lint Mermaid fenced blocks via minlag/mermaid-cli (static-check gate)
 make image-build                        # Build all three service images via spring-boot:build-image and tag :e2e
 make image-scan                         # Scan built images for HIGH/CRITICAL CVEs with fixes (closes Paketo/CNB Renovate blind spot)
+make image-test                         # Validate Paketo CNB image contract (USER nonroot, entrypoint, layered-JAR layout) via container-structure-test against compose/structure-test/paketo.yaml
 make clean                              # Remove build artifacts
 make run                                # Run the application
-make ci                                 # Local CI: clean, deps, static-check, test, integration-test, build, coverage-check (cve-check is separate — run manually before a release tag)
-make ci-run                             # Run GitHub Actions workflow locally via act (jobs serialized with --job)
+make ci                                 # Local CI: clean, deps, static-check, coverage-generate (Surefire + Failsafe + JaCoCo merge), coverage-check, build. cve-check and image-scan run via `make pre-release`.
+make ci-run                             # Run GitHub Actions workflow locally via act (jobs serialized with --job; skips e2e/cve-check/ci-pass)
 make cve-check                          # OWASP dependency vulnerability scan (pre-tag release gate; omitted from `make ci`)
 make coverage-generate                  # Generate merged unit + integration JaCoCo coverage (mvn verify -P integration-test)
 make coverage-check                     # Verify merged coverage meets minimum threshold (80%)
 make coverage-open                      # Open code coverage report
 make kind-up                            # Bring full local KinD stack up (cluster + cloud-provider-kind + Dapr Helm + images + manifests)
 make kind-down                          # Tear the stack down (remove manifests + stop cloud-provider-kind + delete cluster)
-make e2e                                # Run e2e/e2e-test.sh against the LoadBalancer IP (after kind-up)
+make e2e                                # Bring kind-up + run e2e/e2e-test.sh against the LoadBalancer IP (auto-creates cluster)
 make kind-create                        # (granular) Create KinD cluster + start cloud-provider-kind + install Dapr
 make kind-deploy                        # (granular) Build + load images, apply k8s manifests, wait for rollout + LB IP
 make kind-undeploy                      # (granular) Delete application manifests from cluster
 make kind-destroy                       # (granular) Stop cloud-provider-kind + delete KinD cluster
+make k8s-shared-deploy                  # (manual) Deploy alternate "shared sidecar" topology (k8s-dapr-shared/) to running cluster — NOT wired into make e2e or CI
+make k8s-shared-undeploy                # (manual) Remove the alternate shared-sidecar topology from the cluster
 make print-deps-updates                 # Print project dependencies updates
 make update-deps                        # Update project dependencies to latest releases
 make renovate-validate                  # Validate Renovate configuration
-make pre-release                        # Runs cve-check (advisory) + image-scan (strict). Required before `make release`
+make pre-release                        # Runs cve-check + image-scan + image-test (all strict). Required before `make release`
 make release VERSION=x.y.z              # Create a semver release tag (auto-runs `make pre-release`)
 ```
 
@@ -141,10 +144,13 @@ Permanent design rules and operational constraints. Each one is load-bearing —
 
 ### Release workflow
 
-- `make ci` deliberately omits `cve-check` and `image-scan` because both are slow. They run via `make pre-release` (auto-invoked by `make release`):
-  - Both gates are strict — the previous `timeout 300` + `|| true` workaround was removed when dependency-check 12.2.2 (2026-05-03) shipped the upstream fix for the NVD nanosecond-timestamp deserializer bug (PR #8427).
+- `make ci` deliberately omits `cve-check`, `image-scan`, and `image-test` because all three are slow. They run via `make pre-release` (auto-invoked by `make release`):
+  - All three are strict gates — the previous `timeout 300` + `|| true` workaround was removed when dependency-check 12.2.2 (2026-05-03) shipped the upstream fix for the NVD nanosecond-timestamp deserializer bug (PR #8427).
   - `image-scan` catches Paketo helper Go-stdlib CVEs that `trivy-fs` (workspace) and `cve-check` (Maven deps) both miss. `.trivyignore` documents currently-accepted Paketo-upstream CVEs with tracker URLs.
+  - `image-test` asserts the Paketo CNB image contract via `container-structure-test` against `compose/structure-test/paketo.yaml`: USER `1002:1001` nonroot, entrypoint `/cnb/process/web`, WorkingDir `/workspace`, `/cnb/lifecycle/launcher` + `/workspace/BOOT-INF` present, and the negative shape (no `/bin/sh`, `/usr/bin/apt`, `/usr/bin/curl` — distroless invariants). The UID `1002:1001` is a Paketo `builder-jammy-base`-version-specific value (NOT the canonical 1001) — when the builder bumps, the assertion fails fast and the yaml must be re-verified against `docker inspect`. All three services use the same Paketo Java builder so a single shared yaml covers `pizza-store`, `pizza-kitchen`, and `pizza-delivery`.
 - `cve-check` also runs in CI on tag pushes, weekly cron (Mon 06:00 UTC), and `workflow_dispatch`.
+- `image-scan` ALSO runs in CI on every push (PR + main) as a per-service matrix sibling job (single-arch amd64; gates 1–4 = Paketo build + Trivy image scan + Spring Boot boot-marker smoke test + container-structure-test contract assertions). This catches Paketo base-layer CVE regressions AND CNB contract drift between release tags — the tag-gated `docker` matrix would otherwise only surface them on release day.
+- Tag-gated jobs (`docker`, `docker-manifest`) use a block-form `if: !failure() && !cancelled() && startsWith(github.ref, 'refs/tags/v')` so an explicit job-level `if:` doesn't strip GitHub's implicit skip-on-failure cascade; without `!failure()`, a red `static-check`/`build`/`test` on a tag push would still let the publish path run.
 - The `cve-check` Make recipe routes `NVD_API_KEY` through `~/.m2/settings.xml` + `-DnvdApiServerId=nvd` (written via `printf` — bash builtin, no argv). The flag form `-DnvdApiKey=$$NVD_API_KEY` would leak the value via `ps -ef` / `/proc/<pid>/cmdline` for the entire ~30-min plugin lifetime.
 
 ### Image publishing
@@ -182,15 +188,15 @@ Running multiple KinD clusters on the shared default `kind` Docker network cause
 
 ## Upgrade Backlog
 
-Last reviewed: 2026-05-07 (no actionable items outside Renovate; backlog unchanged from 2026-05-05 except K8s 1.36 GA signal noted below)
+Last reviewed: 2026-05-23 (re-verified against Maven Central + Docker Hub: dapr-sdk `1.17.3-rc-1` still RC-only; latest `kindest/node` tag still `v1.35.1`; KinD release still `v0.31.0` from 2025-12-18 — no upstream movement since 2026-05-07).
 
 - [ ] **Maven 4.0 migration** — plan when Maven 4.0 reaches GA (currently RC-5)
 - [ ] **Spring Boot 4.0 → 4.1 migration** — Spring Boot 4.0 OSS support ends **2026-12-31**. 4.1 GA is expected Q4 2026 (currently 4.1.0-RC1). Project commits to staying on the Spring Boot 4.x line; start the 4.0 → 4.1 migration plan ~Q3 2026 to land before EOL.
 - [ ] **`wiremock-testcontainers` GA** — currently `1.0-alpha-15` upstream. Track GA release. (Note: `opentelemetry-instrumentation-bom-alpha` is NOT a backlog item — see Key Config "Test coverage extras" for the rationale.)
-- [ ] **`dapr-spring-boot-4-starter` 1.17.3 GA on Maven Central** — currently `1.17.3-rc-1` only. Bump `dapr.version` (and `testcontainers-dapr.version`, since they're the same property) when GA lands. Runtime/Helm chart is already on 1.17.6 — runtime-ahead-of-SDK is normal Dapr Java cadence.
+- [ ] **`dapr-spring-boot-4-starter` 1.17.3 GA on Maven Central** — currently `1.17.3-rc-1` only (re-verified 2026-05-23). Bump `dapr.version` (and `testcontainers-dapr.version`, since they're the same property) when GA lands. Runtime/Helm chart is already on 1.17.6 — runtime-ahead-of-SDK is normal Dapr Java cadence.
 - [ ] **WireMock 4.0 GA** — currently `4.0.0-beta.10` upstream; project on stable `3.13.2`. Watch for 4.0 GA before bumping.
 - [ ] **Single-app DaprContainer limitation** — upstream-blocked: `dapr/java-sdk:testcontainers-dapr/.../DaprContainer.java` exposes only single `appName/appPort/appChannelAddress` fields (no peer-app registration). Workaround in `KitchenInvocationIT` / `DeliveryInvocationIT`: override `DAPR_HTTP_ENDPOINT` to a WireMock receiver — verifies the emitted HTTP contract (verb, path, body) but bypasses the sidecar invoke hop. The full sidecar→app→sidecar path is covered by the KinD e2e via `make e2e`. Re-wire once upstream adds multi-app support.
-- [ ] **kindest/node v1.36 + kubectl 1.36** — Kubernetes 1.36.0 GA'd 2026-05-07. KinD 0.31.0 (2025-12-18) currently ships node `v1.35.0` (latest patch v1.35.1); a `kindest/node:v1.36.x` typically follows the K8s GA by 2-4 weeks. Bump `kubectl` from 1.35.4 to 1.36.x only after the matching node image lands so cluster ↔ kubectl skew stays at +1 minor max.
+- [ ] **kindest/node v1.36 + kubectl 1.36** — Kubernetes 1.36.0 GA'd 2026-05-07. KinD `v0.31.0` (2025-12-18) currently ships node `v1.35.0` (latest patch `v1.35.1`); no `kindest/node:v1.36.x` tag has been published yet (re-verified Docker Hub 2026-05-23 — 16 days post-K8s-GA, KinD's typical 2–4-week window still ongoing). Bump `kubectl` from 1.35.4 to 1.36.x only after the matching node image lands so cluster ↔ kubectl skew stays at +1 minor max.
 
 ## Skills
 

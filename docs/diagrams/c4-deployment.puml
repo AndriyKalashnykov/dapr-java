@@ -6,22 +6,18 @@ title Deployment — Kubernetes (Pizza Store Platform)
 
 Person(customer, "Customer")
 
-Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
+Deployment_Node(k8s, "Kubernetes cluster", "v1.35+") {
   Deployment_Node(ns, "Namespace: default") {
     Container(lb, "Service: pizza-store", "LoadBalancer 80 -> 8080 (cloud-provider-kind / cloud LB)")
 
-    Deployment_Node(storePod, "Pod: pizza-store") {
-      Container(storeApp, "pizza-store", "Spring Boot 4.0.6, Java 21")
-      Container(storeSidecar, "Dapr sidecar", "app-id: pizza-store")
-    }
-    Deployment_Node(kitchenPod, "Pod: pizza-kitchen") {
-      Container(kitchenApp, "pizza-kitchen", "Spring Boot 4.0.6, Java 21")
-      Container(kitchenSidecar, "Dapr sidecar", "app-id: kitchen-service")
-    }
-    Deployment_Node(deliveryPod, "Pod: pizza-delivery") {
-      Container(deliveryApp, "pizza-delivery", "Spring Boot 4.0.6, Java 21")
-      Container(deliverySidecar, "Dapr sidecar", "app-id: delivery-service")
-    }
+    ' Per-pod app + Dapr sidecar collapsed into one Container — the sidecar
+    ' is co-deployed in the same Pod (shared loopback) and the app-id is
+    ' a Dapr identity, not a separate runtime. Keeps the deployment view
+    ' focused on Pods and their Dapr app-id, not on every container in
+    ' each Pod.
+    Container(storePod, "Pod: pizza-store + Dapr sidecar", "Spring Boot 4.0.6, Java 21 (app-id: pizza-store)")
+    Container(kitchenPod, "Pod: pizza-kitchen + Dapr sidecar", "Spring Boot 4.0.6, Java 21 (app-id: kitchen-service)")
+    Container(deliveryPod, "Pod: pizza-delivery + Dapr sidecar", "Spring Boot 4.0.6, Java 21 (app-id: delivery-service)")
 
     ContainerQueue(pubsub, "PubSub backend", "Kafka (managed) / Redis (e2e)")
     ContainerDb(state, "State Store backend", "PostgreSQL (managed) / Redis (e2e)")
@@ -33,20 +29,20 @@ Deployment_Node(k8s, "Kubernetes cluster", "v1.34+") {
 }
 
 Rel(customer, lb, "HTTPS / WebSocket")
-Rel(lb, storeApp, "Routes to pizza-store:8080")
+Rel(lb, storePod, "Routes to pizza-store:8080")
 
-' Cross-pod service invocation flows store -> kitchen / delivery via the
-' caller's local sidecar. The two arrows model the actual sidecar-to-sidecar
-' hops; the apps invoke through localhost on their own sidecar (intra-pod).
-Rel(storeSidecar, kitchenSidecar, "Invoke kitchen-service", "mTLS HTTP/gRPC")
-Rel(storeSidecar, deliverySidecar, "Invoke delivery-service", "mTLS HTTP/gRPC")
+' Cross-pod service invocation flows through each pod's local Dapr
+' sidecar over mTLS — drawn pod-to-pod here to keep the count under the
+' Container-diagram budget.
+Rel(storePod, kitchenPod, "Invoke kitchen-service", "Dapr / mTLS HTTP/gRPC")
+Rel(storePod, deliveryPod, "Invoke delivery-service", "Dapr / mTLS HTTP/gRPC")
 
-Rel(storeSidecar, state, "Persist orders", "Dapr state API")
-Rel(kitchenSidecar, pubsub, "Publish ORDER_IN_PREPARATION, ORDER_READY", "CloudEvents")
-Rel(deliverySidecar, pubsub, "Publish ORDER_ON_ITS_WAY, ORDER_COMPLETED", "CloudEvents")
-Rel(pubsub, storeSidecar, "Deliver subscribed events", "CloudEvents -> POST /events")
+Rel(storePod, state, "Persist orders", "Dapr state API")
+Rel(kitchenPod, pubsub, "Publish ORDER_IN_PREPARATION, ORDER_READY", "CloudEvents")
+Rel(deliveryPod, pubsub, "Publish ORDER_ON_ITS_WAY, ORDER_COMPLETED", "CloudEvents")
+Rel(pubsub, storePod, "Deliver subscribed events", "CloudEvents -> POST /events")
 
-Rel(storeSidecar, daprCtrl, "Placement lookup, cert rotation", "gRPC")
+Rel(storePod, daprCtrl, "Placement lookup, cert rotation", "gRPC (sidecar)")
 
 SHOW_LEGEND()
 @enduml

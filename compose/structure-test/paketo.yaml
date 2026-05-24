@@ -1,0 +1,63 @@
+# Paketo CNB Java image contract — assertions against every image produced
+# by `mvn spring-boot:build-image` (Paketo Java buildpack family).
+#
+# Verified empirically against pizza-store:e2e on 2026-05-23:
+#   - Paketo `cnb` user is UID 1002, GID 1001 (NOT the canonical 1001 — varies
+#     by buildpack-stack version; assert the exact values produced by the
+#     current `paketobuildpacks/builder-jammy-base` so a stack-driven UID
+#     drift surfaces immediately).
+#   - Entrypoint is `/cnb/process/web` (NOT `/cnb/lifecycle/launcher` directly —
+#     the launcher is the underlying binary, `process/web` is the Spring Boot
+#     "web" process type Paketo wires by default).
+#   - WorkingDir is `/workspace`.
+#   - The run image is distroless (no `/bin/sh`); all assertions below must
+#     be inspect-only (metadataTest, fileExistenceTests). commandTests
+#     CANNOT be used.
+#
+# All three Pizza services use the same Paketo Java builder via the parent
+# pom.xml, so a single shared config file covers `pizza-store`, `pizza-kitchen`,
+# and `pizza-delivery`. Run from the Makefile target `make image-test`.
+
+schemaVersion: 2.0.0
+
+metadataTest:
+  user: "1002:1001"
+  workdir: "/workspace"
+  entrypoint:
+    - "/cnb/process/web"
+  # Paketo deliberately does NOT set CMD or EXPOSE — the Spring Boot
+  # process types wire the JVM invocation, and the JVM binds 8080 at
+  # runtime without a Dockerfile EXPOSE. An explicit `cmd: []` assertion
+  # would over-constrain (container-structure-test treats absent vs empty
+  # as different); leave both unmatched here.
+
+fileExistenceTests:
+  # CNB lifecycle artefacts — present on every Paketo image; their absence
+  # would mean the build path silently switched to a non-CNB tool.
+  - name: cnb-lifecycle-launcher
+    path: /cnb/lifecycle/launcher
+    shouldExist: true
+  - name: cnb-process-web
+    path: /cnb/process/web
+    shouldExist: true
+
+  # Spring Boot layered-JAR layout — `spring-boot:build-image` extracts the
+  # layered jar into /workspace, leaving BOOT-INF/ as the canonical marker.
+  - name: spring-boot-layered-jar
+    path: /workspace/BOOT-INF
+    shouldExist: true
+  - name: spring-boot-classes
+    path: /workspace/BOOT-INF/classes
+    shouldExist: true
+
+  # Negative assertions — these would indicate a regression to a non-distroless
+  # base or a leaked package manager.
+  - name: no-shell
+    path: /bin/sh
+    shouldExist: false
+  - name: no-apt
+    path: /usr/bin/apt
+    shouldExist: false
+  - name: no-curl
+    path: /usr/bin/curl
+    shouldExist: false

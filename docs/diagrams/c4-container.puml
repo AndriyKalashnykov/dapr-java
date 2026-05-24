@@ -11,8 +11,12 @@ System_Boundary(pizza, "Pizza Store Platform") {
   Container(kitchen, "pizza-kitchen", "Spring Boot 4.0.6, Java 21", "Prepares pizzas; publishes ORDER_IN_PREPARATION and ORDER_READY")
   Container(delivery, "pizza-delivery", "Spring Boot 4.0.6, Java 21", "Delivers pizzas in three stages; publishes ORDER_ON_ITS_WAY (x3) and ORDER_COMPLETED")
   Container(daprSidecar, "Dapr sidecar", "Dapr runtime 1.17.6 (Helm) / 1.17.2 (Testcontainers)", "One per pod (app-ids: pizza-store, kitchen-service, delivery-service) — brokers service invocation, pub/sub, state")
-  ContainerDb(state, "State Store", "Dapr component kvstore", "PostgreSQL (managed) / Redis (e2e) — persists orders")
-  ContainerQueue(pubsub, "PubSub", "Dapr component pubsub (topic: topic)", "Kafka (managed) / Redis (e2e) — CloudEvents transport")
+  ' pubsub + state collapsed into one Dapr Components entity. The pub/sub
+  ' (queue) vs state (db) semantic is preserved by the qualifier text in
+  ' each Rel label below ("PubSub: …" / "State: …"). Keeps the Container
+  ' view at <= 15 elements per the C4 soft cap; per-backend deployment
+  ' detail (Kafka vs Redis, PostgreSQL vs Redis) lives in c4-deployment.
+  ContainerDb(daprComponents, "Dapr Components", "kvstore (state) + pubsub (topic)", "PubSub (CloudEvents) + State Store — Kafka/PostgreSQL (managed) / Redis (e2e)")
 }
 
 Rel(customer, store, "Places order", "HTTPS / JSON")
@@ -22,11 +26,11 @@ Rel(store, daprSidecar, "PUT /prepare, PUT /deliver, state RPCs", "HTTP / gRPC")
 Rel(daprSidecar, kitchen, "Invokes kitchen-service (PUT /prepare)", "HTTP")
 Rel(daprSidecar, delivery, "Invokes delivery-service (PUT /deliver)", "HTTP")
 
-Rel(kitchen, pubsub, "Publishes ORDER_IN_PREPARATION, ORDER_READY", "CloudEvents")
-Rel(delivery, pubsub, "Publishes ORDER_ON_ITS_WAY, ORDER_COMPLETED", "CloudEvents")
-Rel(pubsub, store, "Delivers subscribed events", "POST /events (CloudEvent)")
+Rel(kitchen, daprComponents, "Publishes ORDER_IN_PREPARATION, ORDER_READY", "PubSub: CloudEvents")
+Rel(delivery, daprComponents, "Publishes ORDER_ON_ITS_WAY, ORDER_COMPLETED", "PubSub: CloudEvents")
+Rel(daprComponents, store, "Delivers subscribed events", "PubSub: POST /events")
 
-Rel(daprSidecar, state, "Upsert / load orders", "Dapr state API")
+Rel(daprSidecar, daprComponents, "Upsert / load orders", "State: Dapr state API")
 
 SHOW_LEGEND()
 @enduml
