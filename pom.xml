@@ -25,31 +25,46 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-boot.version>4.0.6</spring-boot.version>
         <dapr.version>1.17.2</dapr.version>
-        <opentelemetry.version>1.61.0</opentelemetry.version>
-        <opentelemetry-instrumentation.version>2.27.0-alpha</opentelemetry-instrumentation.version>
+        <opentelemetry.version>1.62.0</opentelemetry.version>
+        <opentelemetry-instrumentation.version>2.28.1-alpha</opentelemetry-instrumentation.version>
         <rest-assured.version>6.0.0</rest-assured.version>
         <hamcrest.version>3.0</hamcrest.version>
         <wiremock-testcontainers.version>1.0-alpha-15</wiremock-testcontainers.version>
         <wiremock.version>3.13.2</wiremock.version>
         <testcontainers-dapr.version>${dapr.version}</testcontainers-dapr.version>
         <grpc.version>1.81.0</grpc.version>
-        <protobuf-java.version>4.34.1</protobuf-java.version>
+        <protobuf-java.version>4.35.0</protobuf-java.version>
         <tomcat.version>11.0.22</tomcat.version>
         <jackson.version>3.1.3</jackson.version>
         <jackson-bom.version>3.1.3</jackson-bom.version>
-        <netty.version>4.2.13.Final</netty.version>
+        <netty.version>4.2.14.Final</netty.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- CVE overrides: BOM imports MUST precede spring-boot-dependencies
-                 because Maven's <dependencyManagement> uses first-declaration-wins
-                 — Spring Boot 4.0.6 ships netty 4.2.12 (vulnerable to CVE-2026-42583/
-                 42584/42587) and would shadow a later netty-bom import. -->
+            <!-- BOM overrides MUST precede spring-boot-dependencies because
+                 Maven's <dependencyManagement> uses first-declaration-wins.
+                 Spring Boot 4.0.6 ships netty 4.2.12 (vulnerable to CVE-2026-
+                 42583/42584/42587) and opentelemetry 1.55.0 (well behind the
+                 current 1.62.0 line); both would shadow a later BOM import. -->
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
                 <version>${netty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>${opentelemetry.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.opentelemetry.instrumentation</groupId>
+                <artifactId>opentelemetry-instrumentation-bom-alpha</artifactId>
+                <version>${opentelemetry-instrumentation.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -90,20 +105,6 @@
                 <groupId>tools.jackson.core</groupId>
                 <artifactId>jackson-annotations</artifactId>
                 <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.opentelemetry</groupId>
-                <artifactId>opentelemetry-bom</artifactId>
-                <version>${opentelemetry.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>io.opentelemetry.instrumentation</groupId>
-                <artifactId>opentelemetry-instrumentation-bom-alpha</artifactId>
-                <version>${opentelemetry-instrumentation.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>io.dapr.spring</groupId>

@@ -27,23 +27,23 @@ C4Context
 |-----------|-----------|-----------|
 | Language | Java 21 LTS | Current LTS with virtual threads and pattern matching |
 | Framework | Spring Boot 4.0.6 | Current GA; provides embedded Tomcat, auto-configuration, and Actuator |
-| Runtime sidecar | Dapr 1.17.6 (Helm) / 1.17.2 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
+| Runtime sidecar | Dapr 1.17.7 (Helm) / 1.17.2 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
 | Dapr SDK | `dapr-spring-boot-4-starter` 1.17.2 | Latest stable on Maven Central; 1.17.3 is RC-only |
 | HTTP server | Embedded Tomcat 11.0.22 | Pinned in `dependencyManagement` to address CVEs |
 | JSON | Jackson 3.1.3 | Pinned to address CVE-reported 2.x transitive dependencies |
 | gRPC | gRPC 1.81.0 | Pinned to address CVEs in older Spring-Boot-managed version |
-| Netty | Netty 4.2.13.Final (BOM) | Pinned via BOM ordered ahead of `spring-boot-dependencies` to address [CVE-2026-42583](https://avd.aquasec.com/nvd/cve-2026-42583) (Lz4FrameDecoder), [CVE-2026-42584](https://avd.aquasec.com/nvd/cve-2026-42584) (HttpClientCodec desync), [CVE-2026-42587](https://avd.aquasec.com/nvd/cve-2026-42587) (HttpContentDecompressor) |
-| Build | Maven 3.9.15 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
+| Netty | Netty 4.2.14.Final (BOM) | Pinned via BOM ordered ahead of `spring-boot-dependencies` to address [CVE-2026-42583](https://avd.aquasec.com/nvd/cve-2026-42583) (Lz4FrameDecoder), [CVE-2026-42584](https://avd.aquasec.com/nvd/cve-2026-42584) (HttpClientCodec desync), [CVE-2026-42587](https://avd.aquasec.com/nvd/cve-2026-42587) (HttpContentDecompressor) |
+| Build | Maven 3.9.16 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
 | Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy fs/config/image + gitleaks | Composite `make static-check` gate |
-| Observability | OpenTelemetry 1.61.0 + `opentelemetry-instrumentation-bom-alpha` 2.27.0-alpha | BOM artefact name is upstream's incubating namespace — production-shipped, not a stability signal |
+| Observability | OpenTelemetry 1.62.0 + `opentelemetry-instrumentation-bom-alpha` 2.28.1-alpha | BOM artefact name is upstream's incubating namespace — production-shipped, not a stability signal |
 | CVE scan | OWASP dependency-check 12.2.2 (`make cve-check`) | Pre-tag release gate + weekly scheduled run; settings.xml routes `NVD_API_KEY` (no argv leak) |
 | DAST | OWASP ZAP baseline scan ([`zaproxy/action-baseline@v0.15.0`](https://github.com/zaproxy/action-baseline)) | Runs against the LB-exposed `pizza-store` after e2e passes; advisory until baseline stabilizes |
 | Image build | Paketo CNB (`spring-boot:build-image`); multi-arch (amd64+arm64) on native runners | No `Dockerfile` — Paketo composes the OCI layers |
 | Image scan | Trivy `--ignore-unfixed` HIGH/CRITICAL on the built image | Catches Paketo base-layer CVEs invisible to `trivy-fs` and `cve-check` |
 | Image structure | [container-structure-test](https://github.com/GoogleContainerTools/container-structure-test) 1.22.1 (`make image-test`) — `compose/structure-test/paketo.yaml` | Asserts Paketo CNB image contract (USER `1002:1001` nonroot, entrypoint `/cnb/process/web`, layered-JAR layout, no `/bin/sh`/`apt`/`curl` leaked). Catches Paketo upstream regressions earlier than runtime |
 | Image signing | [cosign](https://www.sigstore.dev) keyless OIDC (Sigstore Fulcio) | Signs each pushed multi-arch manifest digest; provenance in the Rekor transparency log |
-| Diagram lint | PlantUML 1.2026.2 (`make diagrams-check`) + mermaid-cli 11.14.0 (`make mermaid-lint`) | Wired into `make static-check`; PlantUML render is version-stamped (rerenders on `PLANTUML_VERSION` bump) |
+| Diagram lint | PlantUML 1.2026.4 (`make diagrams-check`) + mermaid-cli 11.15.0 (`make mermaid-lint`) | Wired into `make static-check`; PlantUML render is version-stamped (rerenders on `PLANTUML_VERSION` bump) |
 | Manifest validation | kubeconform 0.7.0 (`make k8s-validate`, vendored OpenAPI — no cluster needed) | Validates both `k8s/` and `k8s-dapr-shared/` on every push |
 | Coverage | JaCoCo (80% min, enforced) | Enforced by `make coverage-check` |
 | Version manager | [mise](https://mise.jdx.dev/) | Pins Java/Maven/Node + kubectl/helm/kind/act/trivy/gitleaks/kubeconform/websocat via `.mise.toml` |
@@ -70,7 +70,7 @@ make run           # start pizza-store standalone
 | [GNU Make](https://www.gnu.org/software/make/) | 3.81+ | Build orchestration |
 | [mise](https://mise.jdx.dev/) | latest | Installs Java/Maven/Node from `.mise.toml` (auto-bootstrapped by `make deps`) |
 | [JDK](https://adoptium.net/) | 21+ | Java runtime and compiler (installed by mise) |
-| [Maven](https://maven.apache.org/) | 3.9.15 | Build and dependency management (installed by mise) |
+| [Maven](https://maven.apache.org/) | 3.9.16 | Build and dependency management (installed by mise) |
 | [Docker](https://www.docker.com/) | latest | Integration tests via Testcontainers |
 
 Install all required dependencies:
@@ -109,7 +109,7 @@ A customer interacts with the Pizza Store Platform over HTTPS / WebSocket; the p
 - **pizza-store** — frontend + backend; places orders via the Dapr state API (`kvstore`), invokes `kitchen-service`/`delivery-service` via Dapr service invocation, subscribes to `pubsub/topic` CloudEvents on `POST /events`, and pushes live status to the browser via WebSocket `/topic/events`.
 - **pizza-kitchen** — receives `PUT /prepare` through its Dapr sidecar; simulates cooking and publishes `ORDER_IN_PREPARATION` then `ORDER_READY` to the shared `pubsub` component on topic `topic`.
 - **pizza-delivery** — receives `PUT /deliver` through its sidecar; emits `ORDER_ON_ITS_WAY` (three times) and `ORDER_COMPLETED` as three-second stages advance.
-- **Dapr sidecar** (1.17.6, one per pod) — brokers all cross-service traffic; apps never address each other directly.
+- **Dapr sidecar** (1.17.7, one per pod) — brokers all cross-service traffic; apps never address each other directly.
 - **State Store** (`kvstore`) — PostgreSQL in production, Redis in e2e. The store applies `ORDER_READY` → `Status.delivery` and `ORDER_COMPLETED` → `Status.completed` as upserts to the same order id.
 - **PubSub** (`pubsub`, topic `topic`) — Kafka in production, Redis in e2e.
 
@@ -155,7 +155,7 @@ sequenceDiagram
 - Three pods in the `default` namespace, one per service (`pizza-store`, `pizza-kitchen`, `pizza-delivery`), each running a single replica with matching `dapr.io/app-id` annotations (`pizza-store`, `kitchen-service`, `delivery-service`).
 - Each pod co-locates the Spring Boot app container with a Dapr sidecar injected via the `dapr.io/enabled` annotation. Cross-pod service invocation flows app → local sidecar → remote sidecar → remote app over mTLS HTTP/gRPC; apps never address each other directly.
 - `pizza-store` is exposed through a `Service` of type `LoadBalancer`. On KinD that IP is provisioned by [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) (host-side controller, no in-cluster MetalLB); in production the cloud LB controller fills the same role. Service port 80 bridges to container port 8080.
-- The Dapr control plane (`dapr-operator`, `placement`, `sentry`, `injector`) runs in the `dapr-system` namespace via the official Helm chart (1.17.6).
+- The Dapr control plane (`dapr-operator`, `placement`, `sentry`, `injector`) runs in the `dapr-system` namespace via the official Helm chart (1.17.7).
 - PubSub and State Store components resolve to Redis for e2e (`k8s/components-e2e.yaml`) and to Kafka + PostgreSQL in production.
 
 Source files live in [`docs/diagrams/`](docs/diagrams/); regenerate the PNGs with `make diagrams`.
@@ -238,7 +238,7 @@ If a production-shaped cluster is already available, install the runtime compone
 helm repo add dapr https://dapr.github.io/helm-charts/
 helm repo update
 helm upgrade --install dapr dapr/dapr \
-  --version=1.17.6 \
+  --version=1.17.7 \
   --namespace dapr-system \
   --create-namespace \
   --wait
