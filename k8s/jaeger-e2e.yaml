@@ -1,0 +1,89 @@
+# Jaeger all-in-one — collector + query UI + in-memory storage. E2E-only
+# (in-memory storage loses traces on pod restart); production should run
+# a separate Jaeger or OTel Collector deployment with persistent storage.
+# Exposes OTLP/HTTP (4318) for the pizza-* apps to push spans and the
+# Jaeger query API (16686) for the e2e suite to assert spans landed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  labels:
+    app: jaeger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      # Pod-level security context — matches the hardening on pizza-*
+      # deployments: non-root, no privilege escalation, dropped capabilities.
+      # jaegertracing/all-in-one ships UID/GID 10001 by default.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+      - name: jaeger
+        # renovate: datasource=docker depName=jaegertracing/all-in-one
+        image: jaegertracing/all-in-one:1.65.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        env:
+        - name: COLLECTOR_OTLP_ENABLED
+          value: "true"
+        ports:
+        - name: otlp-http
+          containerPort: 4318
+        - name: otlp-grpc
+          containerPort: 4317
+        - name: query
+          containerPort: 16686
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 16686
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        # Jaeger writes nothing to disk in the in-memory storage mode used
+        # for e2e, but Go runtimes need writable /tmp for sockets/temp
+        # files; mount an emptyDir to satisfy readOnlyRootFilesystem.
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  labels:
+    app: jaeger
+spec:
+  selector:
+    app: jaeger
+  ports:
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+  - name: query
+    port: 16686
+    targetPort: 16686

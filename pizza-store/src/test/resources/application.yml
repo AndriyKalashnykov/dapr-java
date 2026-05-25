@@ -1,0 +1,7 @@
+# Test overrides for application.yml. Disable tracing sampling so tests don't
+# emit spans to the (unreachable) default OTLP endpoint — the OTel exporter
+# would otherwise log periodic UNAVAILABLE errors throughout the suite.
+management:
+  tracing:
+    sampling:
+      probability: 0.0

@@ -260,6 +260,54 @@ else
   echo "SKIP: no traceparent header on response (optional assertion)"
 fi
 
+# 8. OTel span landing in Jaeger. spring-boot-starter-opentelemetry on each
+# service ships spans via OTLP/HTTP to the in-cluster jaeger Service. The
+# Jaeger query API returns services that have emitted ≥1 span. Polls the
+# API via kubectl port-forward (no LB IP needed for Jaeger — keeps the
+# cloud-provider-kind footprint to one Service per cluster). Asserts all
+# three pizza-* services have produced traces during the lifecycle above.
+echo ""
+echo "=== OTel spans in Jaeger ==="
+JAEGER_PF_LOG=$(mktemp)
+$KUBECTL port-forward svc/jaeger 16686:16686 > "$JAEGER_PF_LOG" 2>&1 &
+JAEGER_PF_PID=$!
+# Give port-forward 5s to bind; abort cleanly if it can't.
+for _ in $(seq 1 10); do
+  curl -sf --max-time 1 http://127.0.0.1:16686/api/services >/dev/null 2>&1 && break
+  sleep 0.5
+done
+
+JAEGER_SERVICES=""
+for _ in $(seq 1 20); do
+  JAEGER_SERVICES=$(curl -sf --max-time 3 http://127.0.0.1:16686/api/services 2>/dev/null \
+    | jq -r '.data[]? // empty' | sort -u | tr '\n' ',' || true)
+  if echo "$JAEGER_SERVICES" | grep -q 'pizza-store,' \
+     && echo "$JAEGER_SERVICES" | grep -q 'pizza-kitchen,' \
+     && echo "$JAEGER_SERVICES" | grep -q 'pizza-delivery,'; then
+    break
+  fi
+  sleep 3
+done
+
+for svc in pizza-store pizza-kitchen pizza-delivery; do
+  if echo "$JAEGER_SERVICES" | grep -q "$svc,"; then
+    pass "Jaeger has spans from $svc"
+  else
+    fail "Jaeger has NO spans from $svc (services seen: ${JAEGER_SERVICES:-<none>})"
+  fi
+done
+
+kill "$JAEGER_PF_PID" 2>/dev/null || true
+wait "$JAEGER_PF_PID" 2>/dev/null || true
+rm -f "$JAEGER_PF_LOG"
+
+# 9. Negative case: gateway routing — unknown path should return 404.
+# Guards against a manifest regression where an over-eager Service selector
+# or Ingress catch-all rewrites unknown URIs to a known controller.
+echo ""
+echo "=== Gateway 404 negative ==="
+assert_status GET "$BASE/this-route-does-not-exist" 404
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 (( FAIL == 0 ))

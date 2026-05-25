@@ -34,9 +34,13 @@ spec:
         - name: JAVA_OPTS
           value: "-XX:+UseParallelGC -XX:ActiveProcessorCount=1 -XX:MaxRAMPercentage=75 -XX:TieredStopAtLevel=1"   
         - name: PUB_SUB_NAME
-          value: pubsub       
+          value: pubsub
         - name: PUB_SUB_TOPIC
-          value: topic  
+          value: topic
+        # OTLP/HTTP collector endpoint — points at the Jaeger Service in the
+        # same namespace for e2e. Override per-environment for production.
+        - name: MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT
+          value: "http://jaeger:4318/v1/traces"
         livenessProbe:
           httpGet:
             path: /actuator/health

@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: pizza-store
+
+# Distributed tracing — Micrometer Observation → OTel SDK → OTLP/HTTP.
+# Sampling at 100% is the right default for a small demo platform; bump down
+# (e.g. 0.1) for high-volume production. The endpoint defaults to the e2e
+# Jaeger Service inside KinD; override via MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT
+# in production to point at a managed collector.
+#
+# Property name uses the SB 4.0 canonical form
+# `management.opentelemetry.tracing.export.otlp.endpoint`. The SB 3.x form
+# `management.otlp.tracing.endpoint` is a deprecated alias that does NOT
+# wire the `OtlpTracingConnectionDetails` bean the new autoconfig requires,
+# so spans silently never reach the collector even though property
+# resolution succeeds. Verified empirically + against SB 4.0.6's
+# `OtlpTracingConfigurations$Exporters.ConditionalOnBean` metadata.
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT:http://localhost:4318/v1/traces}

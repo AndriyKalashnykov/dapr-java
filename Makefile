@@ -30,7 +30,12 @@ CURRENTTAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 #   - PLANTUML_VERSION:             Docker image
 #   - MERMAID_CLI_VERSION:          Docker image
 #   - CLOUD_PROVIDER_KIND_VERSION:  Docker image (controller runs as a
-#                                   container on the host, not a binary)
+#                                   container on the host, not a binary).
+#                                   Verified 2026-05-24: no mise/aqua plugin
+#                                   exists upstream (jdx/mise registry.toml
+#                                   has no entry for kubernetes-sigs/
+#                                   cloud-provider-kind); `docker run` is the
+#                                   only supported install path.
 #   - MAVEN_VERSION:                derived from .mise.toml so the
 #                                   deps-maven Apache-archives fallback (used
 #                                   only by CI containers without mise)
@@ -512,6 +517,9 @@ kind-deploy: kind-create image-build image-scan
 	@echo "--- Deploying Redis (backs Dapr pubsub + state store for e2e) ---"
 	@$(KUBECTL) apply -f k8s/redis-e2e.yaml
 	@$(KUBECTL) rollout status deployment/redis --timeout=120s
+	@echo "--- Deploying Jaeger (OTLP collector + query API for e2e tracing assertions) ---"
+	@$(KUBECTL) apply -f k8s/jaeger-e2e.yaml
+	@$(KUBECTL) rollout status deployment/jaeger --timeout=120s
 	@echo "--- Applying Dapr components (redis-backed for e2e) + subscriptions ---"
 	@# NOTE: k8s/pubsub.yaml (Kafka) and k8s/statestore.yaml (Postgres) are
 	@# replaced with k8s/components-e2e.yaml (redis) to keep e2e hermetic.
@@ -555,6 +563,9 @@ k8s-shared-deploy: deps-check
 	@echo "--- Deploying Redis (backs Dapr pubsub + state store) ---"
 	@$(KUBECTL) apply -f k8s/redis-e2e.yaml
 	@$(KUBECTL) rollout status deployment/redis --timeout=120s
+	@echo "--- Deploying Jaeger (OTLP collector + query API) ---"
+	@$(KUBECTL) apply -f k8s/jaeger-e2e.yaml
+	@$(KUBECTL) rollout status deployment/jaeger --timeout=120s
 	@echo "--- Applying Dapr components (redis-backed) + subscriptions ---"
 	@$(KUBECTL) apply -f k8s/components-e2e.yaml
 	@$(KUBECTL) apply -f k8s/subscription.yaml
@@ -571,6 +582,7 @@ k8s-shared-undeploy: deps-check
 	@$(KUBECTL) delete -f k8s-dapr-shared/apps.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/subscription.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/components-e2e.yaml --ignore-not-found 2>/dev/null || true
+	@$(KUBECTL) delete -f k8s/jaeger-e2e.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/redis-e2e.yaml --ignore-not-found 2>/dev/null || true
 
 #kind-undeploy: @ Remove app and Dapr components from KinD cluster
@@ -580,6 +592,7 @@ kind-undeploy: deps-check
 	done
 	@$(KUBECTL) delete -f k8s/subscription.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/components-e2e.yaml --ignore-not-found 2>/dev/null || true
+	@$(KUBECTL) delete -f k8s/jaeger-e2e.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/redis-e2e.yaml --ignore-not-found 2>/dev/null || true
 
 #kind-destroy: @ Delete the KinD cluster, stop cloud-provider-kind, prune kindccm-* orphans
@@ -612,6 +625,15 @@ e2e: kind-up
 	@# Tear-down is manual by default to allow post-mortem on failure.
 	@# Uncomment the next line to auto-teardown on success:
 	@# $(MAKE) kind-down
+
+#e2e-shared: @ Run end-to-end tests against the alternate "shared sidecar" topology
+# Brings the cluster up (kind-create), deploys the k8s-dapr-shared/ topology
+# (instead of the default per-pod sidecar topology), then runs e2e-test-shared.sh
+# against the LoadBalancer IP. Manual target — not wired into `make e2e` or CI.
+e2e-shared: kind-create k8s-shared-deploy
+	@GATEWAY_IP="$$($(KUBECTL) get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" \
+		KUBECTL="$(KUBECTL)" \
+		e2e/e2e-test-shared.sh
 
 #pre-release: @ Run every slow gate that's NOT in `make ci` (cve-check + image-scan). Required before `make release`.
 pre-release:
@@ -650,6 +672,6 @@ release: pre-release
 	ci ci-run cve-check coverage-generate coverage-check coverage-open \
 	print-deps-updates update-deps renovate-validate \
 	image-build image-scan image-test kind-create kind-deploy kind-undeploy kind-destroy \
-	kind-up kind-down e2e pre-release release \
+	kind-up kind-down e2e e2e-shared pre-release release \
 	diagrams diagrams-clean diagrams-check mermaid-lint k8s-validate \
 	k8s-shared-deploy k8s-shared-undeploy

@@ -5,7 +5,7 @@
 
 # Pizza on Dapr — Spring Boot 4 Microservices Reference
 
-Reference implementation of a three-service Java microservice platform on [Spring Boot 4](https://spring.io/projects/spring-boot) + [Dapr](https://dapr.io) — pub/sub on topic `topic`, state store `kvstore`, mTLS service invocation. The **runtime surface** exposes REST controllers, a STOMP WebSocket on `pizza-store`, per-pod Dapr sidecars, [OpenTelemetry](https://opentelemetry.io) instrumentation, and Actuator-backed liveness/readiness probes; the **delivery surface** covers a [Paketo CNB](https://paketo.io) image build (`spring-boot:build-image`) with multi-arch (amd64+arm64) GHCR publishing + [cosign](https://www.sigstore.dev) keyless OIDC signing, a [Testcontainers](https://testcontainers.com) + [WireMock](https://wiremock.org) integration suite, a KinD + [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) + [`websocat`](https://github.com/vi/websocat) end-to-end harness, and a supply-chain–hardened [GitHub Actions](https://github.com/features/actions) pipeline ([Trivy](https://trivy.dev) fs/config/image, [gitleaks](https://github.com/gitleaks/gitleaks), [OWASP dependency-check](https://owasp.org/www-project-dependency-check/), [OWASP ZAP](https://www.zaproxy.org) baseline DAST, [kubeconform](https://github.com/yannh/kubeconform), Checkstyle + google-java-format, mermaid-lint, PlantUML `diagrams-check`) — runnable locally via [`act`](https://github.com/nektos/act) (`make ci-run`) — on an [mise](https://mise.jdx.dev/)-pinned toolchain with [Renovate](https://docs.renovatebot.com)-managed dependencies and a path-filtered `ci-pass` aggregator.
+Reference implementation of a three-service Java microservice platform on [Spring Boot 4](https://spring.io/projects/spring-boot) + [Dapr](https://dapr.io) — pub/sub on topic `topic`, state store `kvstore`, mTLS service invocation. The **runtime surface** exposes REST controllers, a STOMP WebSocket on `pizza-store`, per-pod Dapr sidecars, [Micrometer Tracing](https://micrometer.io/docs/tracing) + [OpenTelemetry](https://opentelemetry.io) OTLP/HTTP spans shipped to an in-cluster [Jaeger](https://www.jaegertracing.io) for e2e, and Actuator-backed liveness/readiness probes; the **delivery surface** covers a [Paketo CNB](https://paketo.io) image build (`spring-boot:build-image`) with multi-arch (amd64+arm64) GHCR publishing + [cosign](https://www.sigstore.dev) keyless OIDC signing, a [Testcontainers](https://testcontainers.com) + [WireMock](https://wiremock.org) integration suite, a KinD + [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) + [`websocat`](https://github.com/vi/websocat) end-to-end harness, and a supply-chain–hardened [GitHub Actions](https://github.com/features/actions) pipeline ([Trivy](https://trivy.dev) fs/config/image, [gitleaks](https://github.com/gitleaks/gitleaks), [OWASP dependency-check](https://owasp.org/www-project-dependency-check/), [OWASP ZAP](https://www.zaproxy.org) baseline DAST, [container-structure-test](https://github.com/GoogleContainerTools/container-structure-test) CNB-contract assertions, [kubeconform](https://github.com/yannh/kubeconform), Checkstyle + google-java-format, mermaid-lint, PlantUML `diagrams-check`) — runnable locally via [`act`](https://github.com/nektos/act) (`make ci-run`) — on an [mise](https://mise.jdx.dev/)-pinned toolchain with [Renovate](https://docs.renovatebot.com)-managed dependencies and a path-filtered `ci-pass` aggregator.
 
 ```mermaid
 C4Context
@@ -36,7 +36,7 @@ C4Context
 | Build | Maven 3.9.16 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
 | Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy fs/config/image + gitleaks | Composite `make static-check` gate |
-| Observability | OpenTelemetry 1.62.0 + `opentelemetry-instrumentation-bom-alpha` 2.28.1-alpha | BOM artefact name is upstream's incubating namespace — production-shipped, not a stability signal |
+| Observability | `spring-boot-starter-opentelemetry` 4.0.6 (umbrella starter — bundles `spring-boot-micrometer-tracing-opentelemetry` + `spring-boot-opentelemetry` autoconfig + `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) + OpenTelemetry 1.62.0 SDK + Jaeger all-in-one 1.65.0 for e2e | Spans flow Spring Observation → OTel SDK → OTLP/HTTP → Jaeger collector. The lower-level deps (`micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) ship the runtime but NOT the SB 4.0 autoconfig modules (which live in `spring-boot-micrometer-tracing-opentelemetry`) — use the starter |
 | CVE scan | OWASP dependency-check 12.2.2 (`make cve-check`) | Pre-tag release gate + weekly scheduled run; settings.xml routes `NVD_API_KEY` (no argv leak) |
 | DAST | OWASP ZAP baseline scan ([`zaproxy/action-baseline@v0.15.0`](https://github.com/zaproxy/action-baseline)) | Runs against the LB-exposed `pizza-store` after e2e passes; advisory until baseline stabilizes |
 | Image build | Paketo CNB (`spring-boot:build-image`); multi-arch (amd64+arm64) on native runners | No `Dockerfile` — Paketo composes the OCI layers |
@@ -52,15 +52,29 @@ C4Context
 
 ## Quick Start
 
+The fastest path from a clean checkout to a working three-service stack with Dapr + Redis + Jaeger:
+
 ```bash
 make deps          # install build dependencies via mise (reads .mise.toml)
+make kind-up       # create KinD cluster, install Dapr via Helm, deploy services + Redis + Jaeger
+make e2e           # run e2e/e2e-test.sh against the LoadBalancer IP
+make kind-down     # tear everything down
+```
+
+`make kind-up` chains `kind-create` + `image-build` + `kind-deploy` (~3-5 min on a warm cache). See [Kubernetes Deployment](#kubernetes-deployment) for granular targets.
+
+### Single-service development loop
+
+When iterating on `pizza-store` alone (UI work, controller tweaks — no Dapr sidecar required), the standalone JVM path is faster:
+
+```bash
 make build         # build project (skips tests)
-make test          # run unit tests (requires Docker)
-make run           # start pizza-store standalone
+make test          # run unit tests (requires Docker for Testcontainers)
+make run           # start pizza-store standalone (no kitchen / delivery / Dapr)
 # Open http://localhost:8080
 ```
 
-`make run` boots `pizza-store` only — the UI loads, but order placement requires the full three-service stack with Dapr sidecars. Use `make kind-up` (see [Kubernetes Deployment](#kubernetes-deployment)) to bring everything up locally.
+The UI loads, but order placement fails without the full three-service stack — use `make kind-up` for end-to-end demos.
 
 ## Prerequisites
 
@@ -180,7 +194,20 @@ CloudEvents can be replayed locally against a running pizza-store using [`httpie
 http :8080/events Content-Type:application/cloudevents+json < pizza-store/event-in-prep.json
 ```
 
-## Testing
+## Build & Package
+
+The build pipeline produces three artefact tiers, each gated by a separate `make` target:
+
+| Stage | Command | Output | Notes |
+|-------|---------|--------|-------|
+| Compile + JAR | `make build` | `pizza-store/target/*.jar`, `pizza-kitchen/target/*.jar`, `pizza-delivery/target/*.jar` | Standard Maven `install -Dmaven.test.skip=true` |
+| OCI image | `make image-build` | `pizza-store:e2e`, `pizza-kitchen:e2e`, `pizza-delivery:e2e` (local Docker daemon) | Built via `mvn spring-boot:build-image` (Paketo CNB buildpacks); no `Dockerfile` |
+| Image scan | `make image-scan` | Pass / fail (HIGH/CRITICAL fixed-only) | Trivy `--ignore-unfixed --exit-code 1`; closes the Paketo base-layer CVE blind spot that `trivy-fs` and `cve-check` cannot see. Also runs in CI as a per-push `image-scan` sibling job (matrix per service) so Paketo base-layer regressions are caught between releases |
+| Image structure | `make image-test` | Pass / fail (8 assertions) | `container-structure-test` against `compose/structure-test/paketo.yaml`; asserts the Paketo CNB image contract (USER `1002:1001`, entrypoint `/cnb/process/web`, `/workspace/BOOT-INF` layered-JAR layout, no `/bin/sh`/`apt`/`curl`). Wired into both `make pre-release` and the CI `image-scan` job's Structure test step |
+
+For tag-gated GHCR publication see [CI/CD](#cicd) — the `docker` job builds, scans, smoke-tests (Spring Boot boot marker), pushes to `ghcr.io/<owner>/<repo>/pizza-*:<version>` and `:latest`, and signs every digest with [cosign keyless OIDC](https://docs.sigstore.dev/cosign/keyless/) (Sigstore Fulcio).
+
+### Testing
 
 Tests use [Testcontainers](https://testcontainers.com) with [`io.dapr:testcontainers-dapr`](https://central.sonatype.com/artifact/io.dapr/testcontainers-dapr) to start Dapr sidecars and placement services. Integration tests run outside Kubernetes without any manual Dapr setup — only Docker is required.
 
@@ -199,21 +226,9 @@ Three test layers are exposed:
 | Layer | Command | Scope | Runtime |
 |-------|---------|-------|---------|
 | Unit | `make test` | Surefire runs `**/*Test.java` against in-memory PubSub Dapr sidecars | ~30 s |
-| Integration | `make integration-test` | Failsafe runs `**/*IT.java`: `PizzaStoreStateStoreIT` (real `kvstore` round-trip), `KitchenInvocationIT` / `DeliveryInvocationIT` (service-invocation contract via WireMock), `WebSocketBroadcastIT` (STOMP broadcast of `ORDER_PLACED`) | ~1 min |
-| E2E | `make e2e` | KinD + cloud-provider-kind + Dapr Helm + `e2e/e2e-test.sh` asserts the full `store → kitchen → store → delivery → store` lifecycle reaches `Status.completed` through the LoadBalancer | ~2 min |
-
-## Build & Package
-
-The build pipeline produces three artefact tiers, each gated by a separate `make` target:
-
-| Stage | Command | Output | Notes |
-|-------|---------|--------|-------|
-| Compile + JAR | `make build` | `pizza-store/target/*.jar`, `pizza-kitchen/target/*.jar`, `pizza-delivery/target/*.jar` | Standard Maven `install -Dmaven.test.skip=true` |
-| OCI image | `make image-build` | `pizza-store:e2e`, `pizza-kitchen:e2e`, `pizza-delivery:e2e` (local Docker daemon) | Built via `mvn spring-boot:build-image` (Paketo CNB buildpacks); no `Dockerfile` |
-| Image scan | `make image-scan` | Pass / fail (HIGH/CRITICAL fixed-only) | Trivy `--ignore-unfixed --exit-code 1`; closes the Paketo base-layer CVE blind spot that `trivy-fs` and `cve-check` cannot see. Also runs in CI as a per-push `image-scan` sibling job (matrix per service) so Paketo base-layer regressions are caught between releases |
-| Image structure | `make image-test` | Pass / fail (8 assertions) | `container-structure-test` against `compose/structure-test/paketo.yaml`; asserts the Paketo CNB image contract (USER `1002:1001`, entrypoint `/cnb/process/web`, `/workspace/BOOT-INF` layered-JAR layout, no `/bin/sh`/`apt`/`curl`). Wired into both `make pre-release` and the CI `image-scan` job's Structure test step |
-
-For tag-gated GHCR publication see [CI/CD](#cicd) — the `docker` job builds, scans, smoke-tests (Spring Boot boot marker), pushes to `ghcr.io/<owner>/<repo>/pizza-*:<version>` and `:latest`, and signs every digest with [cosign keyless OIDC](https://docs.sigstore.dev/cosign/keyless/) (Sigstore Fulcio).
+| Integration | `make integration-test` | Failsafe runs `**/*IT.java`: `PizzaStoreStateStoreIT` (real `kvstore` round-trip), `KitchenInvocationIT` / `DeliveryInvocationIT` (service-invocation contract via WireMock), `OrderCompletedStateIT` (parameterized over `ORDER_READY`→`delivery` + `ORDER_COMPLETED`→`completed`), `WebSocketBroadcastIT` (STOMP broadcast of `ORDER_PLACED`) | ~1 min |
+| E2E | `make e2e` | KinD + cloud-provider-kind + Dapr Helm + Jaeger + `e2e/e2e-test.sh` asserts the full `store → kitchen → store → delivery → store` lifecycle reaches `Status.completed` through the LoadBalancer, WS broadcast on `/topic/events`, gateway 404 negative, and OTLP spans landing in Jaeger for all three services | ~2 min |
+| E2E (shared topology) | `make e2e-shared` | Manual — runs `e2e/e2e-test-shared.sh` against the alternate `k8s-dapr-shared/` shared-sidecar topology. Same contract as `make e2e`, not wired into CI | ~2 min |
 
 ## Kubernetes Deployment
 
