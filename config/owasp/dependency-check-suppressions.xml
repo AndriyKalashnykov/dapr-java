@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+
+    <!--
+        CVE-2026-39883 — false positive against io.opentelemetry.semconv:opentelemetry-semconv.
+
+        NVD's own description ties this CVE to "OpenTelemetry-Go ... the Go implementation
+        of OpenTelemetry" (PATH-hijack on BSD/Solaris via bare `kenv` command, vulnerable
+        from 1.15.0 to 1.42.0, fixed in 1.43.0). The vulnerable artifact is the Go SDK,
+        not the Java semantic-conventions library this project pulls in. OWASP matched
+        on the CPE `cpe:2.3:a:opentelemetry:opentelemetry:1.41.1` purely because the
+        Java semconv artifact's version happens to fall inside the Go SDK's vulnerable
+        range — different language, different codebase, different release cadence,
+        zero relationship between the two version numbers.
+
+        Sources:
+          - NVD: https://nvd.nist.gov/vuln/detail/CVE-2026-39883
+          - First surfaced: workflow_dispatch run 26412295497 on 2026-05-25.
+    -->
+    <suppress>
+        <notes><![CDATA[
+            CVE-2026-39883 applies to opentelemetry-go (the Go SDK), not to the Java
+            opentelemetry-semconv artifact. CPE-overmatch FP.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.opentelemetry\.semconv/opentelemetry-semconv@.*$</packageUrl>
+        <cve>CVE-2026-39883</cve>
+    </suppress>
+
+</suppressions>

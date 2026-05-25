@@ -289,6 +289,12 @@
                         <skipProvidedScope>true</skipProvidedScope>
                         <skipRuntimeScope>false</skipRuntimeScope>
                         <assemblyAnalyzerEnabled>false</assemblyAnalyzerEnabled>
+                        <suppressionFiles>
+                            <!-- Resolved relative to each module's basedir; ${maven.multiModuleProjectDirectory}
+                                 points at the reactor root regardless of which submodule the plugin
+                                 is currently scanning, so a single suppression file covers all services. -->
+                            <suppressionFile>${maven.multiModuleProjectDirectory}/config/owasp/dependency-check-suppressions.xml</suppressionFile>
+                        </suppressionFiles>
                     </configuration>
                 </plugin>
                 <!--
