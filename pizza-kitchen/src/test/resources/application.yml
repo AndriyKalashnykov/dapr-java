@@ -1,0 +1,6 @@
+# Test overrides — disable OTel sampling so the unreachable default OTLP
+# endpoint doesn't log UNAVAILABLE errors throughout the suite.
+management:
+  tracing:
+    sampling:
+      probability: 0.0

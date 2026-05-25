@@ -58,14 +58,18 @@ public class PizzaKitchenTest {
     registry.add("dapr.http.port", dapr::getHttpPort);
   }
 
+  @Autowired private SubscriptionsRestController subscriptionsRestController;
+
   @BeforeEach
   void setSystemProperties() {
     System.setProperty("dapr.grpc.port", String.valueOf(dapr.getGrpcPort()));
     System.setProperty("dapr.http.port", String.valueOf(dapr.getHttpPort()));
     io.restassured.RestAssured.port = APP_PORT;
+    // Reset captured events so this test sees only its own emissions
+    // (the empty-items doc-test emits 2 events that would otherwise pollute
+    // the count-based assertion in testPrepareOrderRequest).
+    subscriptionsRestController.clear();
   }
-
-  @Autowired private SubscriptionsRestController subscriptionsRestController;
 
   @Test
   public void testPrepareOrderRequest() throws Exception {
@@ -128,5 +132,35 @@ public class PizzaKitchenTest {
         .then()
         .assertThat()
         .statusCode(400);
+  }
+
+  // Parsed-but-empty items list. Documents current contract: the handler
+  // accepts the order and proceeds to emit ORDER_IN_PREPARATION + ORDER_READY
+  // (the for-loop simply never iterates). If a future change introduces
+  // @Valid + @Size(min=1) on items to reject empty orders at the
+  // controller boundary, this assertion will fail loudly — at which point
+  // update the expected status to 400 and assert zero published events.
+  //
+  // Awaits the 2-event emission so the async kitchen thread terminates
+  // before the next test's @BeforeEach clear() — otherwise leftover events
+  // pollute the next test's assertion.
+  @Test
+  public void testPrepareAcceptsEmptyItemsArrayCurrently() {
+    String orderId = UUID.randomUUID().toString();
+    Order emptyOrder = new Order(orderId, Collections.emptyList(), new Date());
+
+    with()
+        .body(emptyOrder)
+        .contentType(ContentType.JSON)
+        .when()
+        .request("PUT", "/prepare")
+        .then()
+        .assertThat()
+        .statusCode(200);
+
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .pollInterval(Duration.ofMillis(500))
+        .untilAsserted(() -> assertEquals(2, subscriptionsRestController.getAllEvents().size()));
   }
 }

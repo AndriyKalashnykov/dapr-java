@@ -19,7 +19,8 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -28,13 +29,20 @@ import org.springframework.test.util.TestSocketUtils;
 import org.wiremock.integrations.testcontainers.WireMockContainer;
 
 /**
- * Integration test covering the ORDER_COMPLETED branch of {@link PizzaStore#receiveEvents}: when a
- * CloudEvent of type {@code order-completed} arrives, the store must upsert the order with {@code
- * Status.completed} so the subsequent {@code GET /order} reflects the terminal state.
+ * Integration test covering the two state-mutating branches of {@link PizzaStore#receiveEvents}:
+ *
+ * <ul>
+ *   <li>{@code ORDER_READY} → the store calls {@code prepareOrderForDelivery} which upserts the
+ *       order with {@code Status.delivery} (and invokes the delivery service via WireMock stub).
+ *   <li>{@code ORDER_COMPLETED} → the store upserts the order with {@code Status.completed}.
+ * </ul>
+ *
+ * Event types {@code ORDER_PLACED}, {@code ORDER_IN_PREPARATION}, {@code ORDER_OUT_FOR_DELIVERY},
+ * and {@code ORDER_ON_ITS_WAY} take the no-state-mutation branch (they only broadcast over the
+ * WebSocket); their handling is exercised by {@link WebSocketBroadcastIT}.
  *
  * <p>The existing {@link PizzaStoreStateStoreIT} only exercises {@code POST /order} persistence;
- * this IT closes the coverage gap on the second branch of {@code receiveEvents} (the first branch,
- * ORDER_READY, is covered by {@link DeliveryInvocationIT}).
+ * this IT closes the coverage gap on the state-mutating branches of {@code receiveEvents}.
  */
 @SpringBootTest(
     classes = PizzaStoreAppTest.class,
@@ -76,8 +84,14 @@ public class OrderCompletedStateIT {
     RestAssured.port = APP_PORT;
   }
 
-  @Test
-  public void orderCompletedEventTransitionsStatusToCompleted() {
+  /**
+   * Parameterized over the two state-mutating event types. {@code eventType} is the CloudEvent
+   * data.type value the store handler dispatches on; {@code expectedStatus} is the resulting Order
+   * status enum value after the upsert.
+   */
+  @ParameterizedTest(name = "{0} → status={1}")
+  @CsvSource({"order-ready,     delivery", "order-completed, completed"})
+  public void stateMutatingEventTransitionsOrderStatus(String eventType, String expectedStatus) {
     // Place a fresh order so the state store has a row keyed on an id we control downstream.
     Order placed =
         new Order(
@@ -97,39 +111,40 @@ public class OrderCompletedStateIT {
             .extract()
             .path("id");
 
-    // Confirm the order landed before posting the completion event.
+    // Confirm the order landed before posting the state-transition event.
     await()
         .atMost(Duration.ofSeconds(15))
         .pollInterval(Duration.ofMillis(500))
         .untilAsserted(
             () -> get("/order").then().statusCode(200).body("orders.id", hasItem(orderId)));
 
-    // Post an ORDER_COMPLETED CloudEvent referencing the same order id. PizzaStore's
-    // receiveEvents handler should upsert the row with status=completed.
-    String completedEvent =
+    // Post the state-transition CloudEvent. PizzaStore.receiveEvents dispatches:
+    //   order-ready     → prepareOrderForDelivery() → Status.delivery + delivery-service invoke
+    //   order-completed → store() with Status.completed
+    String event =
         """
         {
             "specversion": "1.0",
             "type": "com.dapr.event.sent",
-            "source": "delivery-service",
+            "source": "test-source",
             "data": {
-                "type": "order-completed",
-                "service": "delivery",
-                "message": "Your Order has been delivered.",
+                "type": "%s",
+                "service": "test",
+                "message": "Test event for state-transition assertion.",
                 "order": {
                     "customer": {"name": "frank", "email": "frank@example.com"},
                     "items": [{"type": "margherita", "amount": 1}],
                     "id": "%s",
                     "orderDate": "2026-05-01T12:00:00.000+00:00",
-                    "status": "delivery"
+                    "status": "placed"
                 }
             }
         }
         """
-            .formatted(orderId);
+            .formatted(eventType, orderId);
 
     with()
-        .body(completedEvent)
+        .body(event)
         .contentType("application/cloudevents+json")
         .when()
         .request("POST", "/events")
@@ -149,6 +164,6 @@ public class OrderCompletedStateIT {
                     .assertThat()
                     .statusCode(200)
                     .body("orders.id", hasItem(orderId))
-                    .body("orders.status", hasItem("completed")));
+                    .body("orders.status", hasItem(expectedStatus)));
   }
 }

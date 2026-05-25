@@ -22,4 +22,9 @@ public class SubscriptionsRestController {
   public List<CloudEvent<Event>> getAllEvents() {
     return events;
   }
+
+  /** Reset captured events between test methods so per-test assertions stay isolated. */
+  public void clear() {
+    events.clear();
+  }
 }

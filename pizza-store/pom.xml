@@ -31,6 +31,17 @@
             <groupId>io.dapr.spring</groupId>
             <artifactId>dapr-spring-boot-4-starter</artifactId>
         </dependency>
+        <!-- Distributed tracing: Spring Boot 4.0 umbrella starter that
+             bundles spring-boot-micrometer-tracing-opentelemetry (provides
+             OtlpTracingAutoConfiguration + property metadata) +
+             spring-boot-opentelemetry (OTel SDK autoconfig) +
+             micrometer-tracing-bridge-otel + opentelemetry-exporter-otlp.
+             Using the lower-level deps individually does NOT bring in the
+             autoconfig modules — verified against SB 4.0.6 module layout. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.wiremock.integrations.testcontainers</groupId>
             <artifactId>wiremock-testcontainers-module</artifactId>

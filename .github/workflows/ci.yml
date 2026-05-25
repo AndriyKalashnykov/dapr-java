@@ -99,13 +99,11 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Install Maven
-      run: make deps-maven
-
-    # mise provides trivy, gitleaks, and kubeconform (pinned in .mise.toml)
-    # for the static-check composite gate (format-check, checkstyle, trivy-fs,
-    # trivy-config, secrets, diagrams-check, mermaid-lint, k8s-validate).
-    # The act runner image has none of them preinstalled.
+    # mise provides Maven + trivy + gitleaks + kubeconform (pinned in
+    # .mise.toml) for the static-check composite gate (format-check,
+    # checkstyle, trivy-fs, trivy-config, secrets, diagrams-check,
+    # mermaid-lint, k8s-validate). The act runner image has none of them
+    # preinstalled.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
@@ -132,8 +130,14 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Install Maven
-      run: make deps-maven
+    # mise provides Maven (pinned in .mise.toml) for the build. Required on
+    # every `make`-running job per /ci-workflow §"jdx/mise-action coverage";
+    # without it `mise install` hits GitHub's 60-req/hr anonymous limit on
+    # aqua: backend lookups when adding new tools.
+    - name: Install mise
+      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      with:
+        cache: true
 
     - name: Build
       run: make build
@@ -143,9 +147,8 @@ jobs:
     # storage/bandwidth. Retention 1 day is just long enough for any
     # downstream release consumer.
     - name: Upload build artifacts
-      if: startsWith(github.ref, 'refs/tags/')
+      if: ${{ startsWith(github.ref, 'refs/tags/') && vars.ACT != 'true' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-      continue-on-error: true
       with:
         name: service-jars
         path: |
@@ -174,8 +177,11 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Install Maven
-      run: make deps-maven
+    # mise provides Maven (pinned in .mise.toml). See `build` job for rationale.
+    - name: Install mise
+      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      with:
+        cache: true
 
     - name: Test
       run: make test
@@ -203,19 +209,21 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Install Maven
-      run: make deps-maven
+    # mise provides Maven (pinned in .mise.toml). See `build` job for rationale.
+    - name: Install mise
+      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      with:
+        cache: true
 
-    - name: Integration test with coverage
+    - name: Integration test
       run: make coverage-generate
 
     - name: Verify coverage threshold
       run: make coverage-check
 
     - name: Upload coverage report
-      if: always()
+      if: ${{ always() && vars.ACT != 'true' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-      continue-on-error: true
       with:
         name: coverage-report
         path: '**/target/site/jacoco/'
@@ -249,8 +257,11 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Install Maven
-      run: make deps-maven
+    # mise provides Maven (pinned in .mise.toml). See `build` job for rationale.
+    - name: Install mise
+      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      with:
+        cache: true
 
     - name: Cache NVD database
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
@@ -269,9 +280,8 @@ jobs:
       run: make cve-check
 
     - name: Upload CVE report
-      if: always()
+      if: ${{ always() && vars.ACT != 'true' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-      continue-on-error: true
       with:
         name: cve-report
         path: '**/target/dependency-check-report.html'
@@ -309,10 +319,8 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Install Maven
-      run: make deps-maven
-
-    # mise provides trivy (pinned in .mise.toml) for the image scan gate.
+    # mise provides Maven + trivy (pinned in .mise.toml) for the image
+    # scan gate.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
@@ -394,17 +402,15 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Install Maven
-      run: make deps-maven
-
-    # mise provides kind, kubectl, helm, trivy, gitleaks (pinned in .mise.toml)
-    # for the KinD-based e2e flow.
+    # mise provides Maven + kind + kubectl + helm + trivy + gitleaks +
+    # websocat + container-structure-test (pinned in .mise.toml) for the
+    # KinD-based e2e flow.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
         cache: true
 
-    - name: Run end-to-end tests
+    - name: End-to-end tests
       run: make e2e
 
     # DAST: ZAP baseline scan against the LB-exposed pizza-store. Runs only
@@ -415,7 +421,7 @@ jobs:
     # makes findings reviewable per-PR. continue-on-error: true keeps the e2e
     # job from failing on advisory ZAP findings — promote to strict once the
     # baseline is clean and a regression budget is set.
-    - name: Resolve LoadBalancer IP for ZAP scan
+    - name: Resolve LoadBalancer IP
       id: lb
       run: |
         IP=$(kubectl get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
@@ -436,9 +442,8 @@ jobs:
         allow_issue_writing: false
 
     - name: Upload ZAP baseline report
-      if: always()
+      if: ${{ always() && vars.ACT != 'true' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-      continue-on-error: true
       with:
         name: zap-baseline-report
         # zaproxy/action-baseline always produces these three files via its
@@ -462,9 +467,8 @@ jobs:
         done
 
     - name: Upload e2e diagnostics
-      if: failure()
+      if: ${{ failure() && vars.ACT != 'true' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-      continue-on-error: true
       with:
         name: e2e-diagnostics
         path: /tmp/e2e-diag/
@@ -523,21 +527,23 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Install Maven
-      run: make deps-maven
-
-    # mise provides trivy (pinned in .mise.toml) for the image scan gate.
+    # mise provides Maven + trivy (pinned in .mise.toml) for the image
+    # scan gate.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
         cache: true
 
-    - name: Set version from tag
+    - name: Compute version tag
       id: ver
       run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-    - name: Set lowercase image namespace
+    - name: Compute lowercase image namespace
       id: ns
+      # OCI registries require lowercase image names. GitHub Actions has no
+      # built-in expression to case-convert ${{ github.repository_owner }},
+      # so we lowercase via shell. docker/metadata-action also takes its
+      # `images:` value literally — it would not remove this step.
       run: |
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
         REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
@@ -635,11 +641,11 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
-    - name: Set version from tag
+    - name: Compute version tag
       id: ver
       run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-    - name: Set lowercase image namespace
+    - name: Compute lowercase image namespace
       id: ns
       run: |
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')

@@ -19,8 +19,10 @@ System_Boundary(pizza, "Pizza Store Platform") {
   ContainerDb(daprComponents, "Dapr Components", "kvstore (state) + pubsub (topic)", "PubSub (CloudEvents) + State Store — Kafka/PostgreSQL (managed) / Redis (e2e)")
 }
 
-Rel(customer, store, "Places order", "HTTPS / JSON")
-Rel(store, customer, "Pushes live order status", "WebSocket /topic/events")
+' Customer↔Store is bidirectional: HTTPS/JSON in, STOMP WebSocket
+' broadcast out. Collapsed into one BiRel to keep the diagram at the
+' C4-PlantUML soft cap of 15 elements (was 16 with two separate Rels).
+BiRel(customer, store, "HTTPS / JSON in, WebSocket /topic/events out")
 
 Rel(store, daprSidecar, "PUT /prepare, PUT /deliver, state RPCs", "HTTP / gRPC")
 Rel(daprSidecar, kitchen, "Invokes kitchen-service (PUT /prepare)", "HTTP")

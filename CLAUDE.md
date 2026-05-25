@@ -47,7 +47,8 @@ make kind-deploy                        # (granular) Build + load images, apply 
 make kind-undeploy                      # (granular) Delete application manifests from cluster
 make kind-destroy                       # (granular) Stop cloud-provider-kind + delete KinD cluster
 make k8s-shared-deploy                  # (manual) Deploy alternate "shared sidecar" topology (k8s-dapr-shared/) to running cluster — NOT wired into make e2e or CI
-make k8s-shared-undeploy                # (manual) Remove the alternate shared-sidecar topology from the cluster
+make k8s-shared-undeploy                # (manual) Remove the alternate shared-sidecar topology
+make e2e-shared                         # (manual) Run e2e against the alternate shared-sidecar topology — NOT wired into CI from the cluster
 make print-deps-updates                 # Print project dependencies updates
 make update-deps                        # Update project dependencies to latest releases
 make renovate-validate                  # Validate Renovate configuration
@@ -181,6 +182,18 @@ Running multiple KinD clusters on the shared default `kind` Docker network cause
 - `make k8s-validate` (kubeconform) validates `k8s/` and `k8s-dapr-shared/` against vendored OpenAPI on every push, so drift in the unused alternate "shared sidecar" topology surfaces immediately.
 - `e2e` job runs an OWASP ZAP baseline DAST scan against the LB-exposed pizza-store after the assertion suite passes (`continue-on-error: true` while baseline budget is established). The action is pinned at `zaproxy/action-baseline@v0.15.0` until the first clean baseline produces comparable reports — promote ZAP to strict (and bump to v0.16+ if available) together once that lands. This is an internal-policy pin, not an upstream-blocked dep.
 - The OpenTelemetry instrumentation BOM is consumed via the `opentelemetry-instrumentation-bom-alpha` artifact id. The `-alpha` suffix is the upstream namespace for incubating instrumentation modules — it is the production-shipped artifact name, not a stability signal, and it does not "graduate" to a non-alpha BOM. Treat as the steady-state coordinate.
+
+### Distributed tracing (OTel)
+
+- Each service ships `spring-boot-starter-opentelemetry` (SB 4.0.6 umbrella starter). It bundles `spring-boot-micrometer-tracing-opentelemetry` (provides `OtlpTracingAutoConfiguration` + property metadata for `management.otlp.tracing.*` and `management.opentelemetry.tracing.export.otlp.*`), `spring-boot-opentelemetry` (OTel SDK autoconfig), `micrometer-tracing-bridge-otel`, and `opentelemetry-exporter-otlp`. Pulling in only the last two does NOT bring the autoconfig modules — spans never reach the OTLP exporter even though the property metadata accepts the config keys silently. Verified against SB 4.0.6 jar contents 2026-05-24 (`spring-boot-micrometer-tracing-opentelemetry-4.0.6.jar` owns `management.otlp.tracing.*` property metadata; absent if you pull only the bridge + exporter direct).
+- `management.tracing.sampling.probability: 1.0` in `application.yml` for full sampling in the demo; tests override to `0.0` via `src/test/resources/application.yml` so the unreachable default OTLP endpoint doesn't log `UNAVAILABLE` errors throughout the suite.
+- `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT` env var points each pod at `http://jaeger:4318/v1/traces` in `k8s/pizza-*.yaml`. The SB 3.x form (`management.otlp.tracing.endpoint` / `MANAGEMENT_OTLP_TRACING_ENDPOINT`) is a deprecated alias in SB 4.0 — property resolution succeeds but it does NOT wire the new `OtlpTracingConnectionDetails` bean that `OtlpTracingConfigurations$Exporters` is `@ConditionalOnBean` on, so spans silently never reach the collector. Always use the SB 4.0 canonical form `management.opentelemetry.tracing.export.otlp.endpoint`. Jaeger all-in-one (1.65.0) runs as a Deployment + Service per `k8s/jaeger-e2e.yaml` with in-memory storage (e2e-only — production should run a separate OTel Collector or vendor-managed Jaeger with persistent storage).
+- The e2e script asserts all three services emit spans by port-forwarding to the Jaeger query API on `:16686` and verifying `/api/services` lists `pizza-store`, `pizza-kitchen`, and `pizza-delivery` after the lifecycle suite completes. Catches a regression where any pod loses its OTLP wiring.
+
+### Dapr state-store keyPrefix isolation
+
+- `kvstore` is consumed exclusively by `pizza-store` — no other service reads or writes it. The `/test-coverage-analysis` skill's hazard around `keyPrefix=appid` silently isolating cross-app state-store keys is INTENTIONALLY N/A for this project.
+- If a future change adds a second consumer (e.g., `pizza-delivery` reading order history from `kvstore`), revisit the keyPrefix on `k8s/components-e2e.yaml` to ensure both services land at the same key namespace. The default keyPrefix is `appid`, which silently scopes each Dapr app-id's keys; explicitly setting `keyPrefix: name` (uses the Component name as the key prefix, shared across all apps) is the canonical fix when cross-app shared state is intentional.
 
 ### Documentation drift across Renovate-driven version bumps
 

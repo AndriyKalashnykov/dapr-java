@@ -42,7 +42,9 @@ Rel(kitchenPod, pubsub, "Publish ORDER_IN_PREPARATION, ORDER_READY", "CloudEvent
 Rel(deliveryPod, pubsub, "Publish ORDER_ON_ITS_WAY, ORDER_COMPLETED", "CloudEvents")
 Rel(pubsub, storePod, "Deliver subscribed events", "CloudEvents -> POST /events")
 
-Rel(storePod, daprCtrl, "Placement lookup, cert rotation", "gRPC (sidecar)")
+' Pod ↔ Dapr control plane (placement lookup, cert rotation) is implicit
+' from the dapr-system namespace presence — omitted here to keep the
+' deployment view under the C4-PlantUML HIGH-severity ≥20-element cap.
 
 SHOW_LEGEND()
 @enduml
