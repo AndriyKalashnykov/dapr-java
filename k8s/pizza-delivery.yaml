@@ -49,13 +49,14 @@ spec:
           httpGet:
             path: /actuator/health
             port: 8080
+        # See k8s/pizza-store.yaml for requests/limits sizing rationale.
         resources:
           limits:
             cpu: "1"
             memory: "2Gi"
           requests:
-            cpu: "1"
-            memory: "2Gi"
+            cpu: "250m"
+            memory: "512Mi"
         ports:
         - containerPort: 8080
         volumeMounts:

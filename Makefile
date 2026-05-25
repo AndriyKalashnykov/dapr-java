@@ -540,7 +540,7 @@ kind-deploy: kind-create image-build image-scan
 	@$(KUBECTL) patch svc pizza-store -p '{"spec":{"type":"LoadBalancer"}}'
 	@echo "--- Waiting for rollouts ---"
 	@for svc in pizza-store-deployment pizza-kitchen-deployment pizza-delivery-deployment; do \
-		$(KUBECTL) rollout status deployment/$$svc --timeout=300s; \
+		$(KUBECTL) rollout status deployment/$$svc --timeout=600s; \
 	done
 	@echo "--- Waiting for LoadBalancer IP ---"
 	@for i in $$(seq 1 60); do \
