@@ -213,7 +213,7 @@ secrets:
 #deps-prune: @ Analyze Maven dependencies (advisory)
 deps-prune: deps-check
 	@echo "--- Maven: analyzing dependencies ---"
-	@mvn -B dependency:analyze
+	@mvn -B org.apache.maven.plugins:maven-dependency-plugin:analyze
 
 #deps-prune-check: @ Fail if unused declared Maven dependencies exist (CI gate)
 deps-prune-check: deps-check
@@ -221,7 +221,7 @@ deps-prune-check: deps-check
 	@# returns grep's exit code only — a build-tool failure would silently
 	@# pass this gate. SHELL := /bin/bash is set at top of Makefile.
 	@set -o pipefail; \
-	if mvn -B dependency:analyze 2>&1 | grep -qE '^\[WARNING\] Unused declared'; then \
+	if mvn -B org.apache.maven.plugins:maven-dependency-plugin:analyze 2>&1 | grep -qE '^\[WARNING\] Unused declared'; then \
 		echo "ERROR: unused declared Maven dependencies found. Run 'make deps-prune' to see details."; \
 		exit 1; \
 	fi
@@ -357,12 +357,23 @@ cve-check: deps-check
 	@# `/proc/<pid>/cmdline` for the entire ~30-min plugin lifetime
 	@# (settings.xml stays on disk with mode 0600). printf is a bash builtin —
 	@# the value never lands in argv.
+	@# Use fully-qualified `groupId:artifactId:goal` form (NOT the short
+	@# `dependency-check:check` prefix). The short form requires Maven to
+	@# resolve the prefix by GETting `<group>/maven-metadata.xml` from
+	@# Central for every registered plugin group; a transient HTTP 403
+	@# from Central's CI-egress throttle on any of those metadata calls
+	@# fails the build with `NoPluginFoundForPrefixException` (root cause
+	@# of run 26389218249 on 2026-05-25). The g:a:goal form bypasses
+	@# prefix resolution entirely; the version is inherited from parent
+	@# pom.xml pluginManagement (12.2.2). Same pattern applied to every
+	@# other plugin invocation in this Makefile — see deps-prune,
+	@# coverage-check, print-deps-updates, update-deps, image-build.
 	@if [ -n "$$NVD_API_KEY" ]; then \
 		mkdir -p $$HOME/.m2; \
 		( umask 077 && printf '<settings><servers><server><id>nvd</id><password>%s</password></server></servers></settings>\n' "$$NVD_API_KEY" > $$HOME/.m2/settings.xml ); \
-		mvn -B dependency-check:check -DnvdApiServerId=nvd; \
+		mvn -B org.owasp:dependency-check-maven:check -DnvdApiServerId=nvd; \
 	else \
-		mvn -B dependency-check:check; \
+		mvn -B org.owasp:dependency-check-maven:check; \
 	fi
 
 #coverage-generate: @ Generate merged unit + integration coverage report
@@ -385,7 +396,7 @@ coverage-check: deps-check
 			exit 1; \
 		fi; \
 	done
-	@mvn -B jacoco:check
+	@mvn -B org.jacoco:jacoco-maven-plugin:check
 
 #coverage-open: @ Open code coverage report
 coverage-open: deps-check
@@ -397,11 +408,12 @@ coverage-open: deps-check
 
 #print-deps-updates: @ Print project dependencies updates
 print-deps-updates: deps-check
-	@mvn -B versions:display-dependency-updates
+	@mvn -B org.codehaus.mojo:versions-maven-plugin:display-dependency-updates
 
 #update-deps: @ Update project dependencies to latest releases
 update-deps: print-deps-updates
-	@mvn -B versions:use-latest-releases versions:commit
+	@mvn -B org.codehaus.mojo:versions-maven-plugin:use-latest-releases \
+	       org.codehaus.mojo:versions-maven-plugin:commit
 
 #renovate-validate: @ Validate Renovate configuration
 renovate-validate: deps
@@ -414,7 +426,7 @@ renovate-validate: deps
 image-build: deps-check
 	@for svc in $(SERVICES); do \
 		echo "--- Building image for $$svc ---"; \
-		mvn -B -pl $$svc -am spring-boot:build-image \
+		mvn -B -pl $$svc -am org.springframework.boot:spring-boot-maven-plugin:build-image \
 			-Dmaven.test.skip=true \
 			-Ddependency-check.skip=true \
 			-Dspring-boot.build-image.imageName=$$svc:$(E2E_IMAGE_TAG) \

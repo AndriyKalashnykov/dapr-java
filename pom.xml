@@ -291,6 +291,25 @@
                         <assemblyAnalyzerEnabled>false</assemblyAnalyzerEnabled>
                     </configuration>
                 </plugin>
+                <!--
+                  Pinned so Makefile recipes can invoke these via the fully-
+                  qualified `groupId:artifactId:goal` form and inherit the
+                  version from pluginManagement. The fully-qualified form
+                  bypasses Maven's plugin-prefix resolution, which would
+                  otherwise GET `<group>/maven-metadata.xml` from Central and
+                  fail the run on any transient 403 from Central's CI throttle
+                  (root cause of run 26389218249 on 2026-05-25).
+                -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>3.10.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>versions-maven-plugin</artifactId>
+                    <version>2.18.0</version>
+                </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
