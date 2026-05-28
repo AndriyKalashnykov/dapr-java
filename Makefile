@@ -282,8 +282,35 @@ mermaid-lint:
 			> /dev/null || { echo "FAIL: Mermaid lint failed in $$f"; exit 1; }; \
 	done
 
-#static-check: @ Composite quality gate (format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate)
-static-check: format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint k8s-validate
+#check-java-alignment: @ Fail-fast precheck — Java major version must match across .mise.toml, .java-version, and pom.xml (java.version + maven.compiler.{source,target})
+# Renovate's `mise` manager bumps `.mise.toml`'s patch version; `.java-version`
+# and `pom.xml` hold the major-only constraint and Renovate does NOT touch
+# them. A manual edit to `.mise.toml` that crosses a major boundary (e.g.,
+# temurin-21.x → temurin-25.x) without updating the others leaves a hidden
+# disagreement: mise installs Java 25, Maven compiles for 21, CI reads .java-version=21 → silent runtime mismatch at first integration test.
+# This 30-millisecond precheck makes the drift mechanical to detect.
+check-java-alignment:
+	@set -e; \
+	mise_major=$$(awk -F'"' '/^java *= *"/ {print $$2; exit}' .mise.toml | sed -E 's/^temurin-([0-9]+)\..*/\1/'); \
+	jver=$$(tr -d '[:space:]' < .java-version); \
+	pom_jv=$$(grep -oE '<java\.version>[0-9]+</java\.version>' pom.xml | head -1 | sed -E 's/.*>([0-9]+)<.*/\1/'); \
+	pom_src=$$(grep -oE '<maven\.compiler\.source>[0-9]+</maven\.compiler\.source>' pom.xml | head -1 | sed -E 's/.*>([0-9]+)<.*/\1/'); \
+	pom_tgt=$$(grep -oE '<maven\.compiler\.target>[0-9]+</maven\.compiler\.target>' pom.xml | head -1 | sed -E 's/.*>([0-9]+)<.*/\1/'); \
+	if [ "$$mise_major" != "$$jver" ] || [ "$$mise_major" != "$$pom_jv" ] || [ "$$mise_major" != "$$pom_src" ] || [ "$$mise_major" != "$$pom_tgt" ]; then \
+		echo "ERROR: Java major version disagrees across files:"; \
+		printf "  %-32s %s\n" ".mise.toml (java pin, major)"          "$$mise_major"; \
+		printf "  %-32s %s\n" ".java-version"                          "$$jver"; \
+		printf "  %-32s %s\n" "pom.xml <java.version>"                 "$$pom_jv"; \
+		printf "  %-32s %s\n" "pom.xml <maven.compiler.source>"        "$$pom_src"; \
+		printf "  %-32s %s\n" "pom.xml <maven.compiler.target>"        "$$pom_tgt"; \
+		echo "  Persistent fix:"; \
+		echo "    bump every file to the same major (currently .mise.toml = $$mise_major)."; \
+		echo "    update .java-version and pom.xml's three properties together."; \
+		exit 1; \
+	fi
+
+#static-check: @ Composite quality gate (check-java-alignment + format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate)
+static-check: check-java-alignment format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint k8s-validate
 	@echo "All static checks passed"
 
 #run: @ Run the application
@@ -680,7 +707,7 @@ release: pre-release
 
 .PHONY: help deps deps-check deps-maven deps-gjf \
 	env-check clean build test integration-test lint format format-check \
-	trivy-fs trivy-config secrets deps-prune deps-prune-check static-check run \
+	trivy-fs trivy-config secrets deps-prune deps-prune-check check-java-alignment static-check run \
 	ci ci-run cve-check coverage-generate coverage-check coverage-open \
 	print-deps-updates update-deps renovate-validate \
 	image-build image-scan image-test kind-create kind-deploy kind-undeploy kind-destroy \
