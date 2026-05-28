@@ -22,7 +22,8 @@ make trivy-config                       # Scan k8s/ and k8s-dapr-shared/ for KSV
 make secrets                            # Scan for leaked secrets (gitleaks)
 make deps-prune                         # Analyze Maven dependencies (advisory)
 make deps-prune-check                   # Fail if unused declared Maven dependencies exist
-make static-check                       # Composite: format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate
+make check-java-alignment               # Fail-fast precheck: Java major matches across .mise.toml, .java-version, pom.xml (java.version + maven.compiler.{source,target})
+make static-check                       # Composite: check-java-alignment + format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate
 make k8s-validate                       # Validate k8s/ + k8s-dapr-shared/ manifests via kubeconform (vendored OpenAPI, no cluster)
 make diagrams                           # Render docs/diagrams/*.puml → docs/diagrams/out/*.png (PlantUML in Docker)
 make diagrams-clean                     # Remove rendered PNGs
