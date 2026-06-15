@@ -33,6 +33,11 @@ spec:
         env:
         - name: JAVA_OPTS
           value: "-XX:+UseParallelGC -XX:ActiveProcessorCount=1 -XX:MaxRAMPercentage=75 -XX:TieredStopAtLevel=1"
+        # OTLP tracing endpoint — same as the default k8s/ topology; without it
+        # the services emit no spans and the e2e Jaeger assertion fails. (Was
+        # missing from this shared-topology manifest.)
+        - name: MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT
+          value: http://jaeger:4318/v1/traces
         - name: DAPR_HTTP_ENDPOINT
           value: http://delivery-service-dapr.default.svc.cluster.local:3500
         - name: DAPR_GRPC_ENDPOINT
@@ -54,8 +59,8 @@ spec:
             cpu: "1"
             memory: "2Gi"
           requests:
-            cpu: "1"
-            memory: "2Gi"
+            cpu: "250m"
+            memory: "512Mi"
         ports:
         - containerPort: 8080
         volumeMounts:
@@ -113,6 +118,11 @@ spec:
         env:
         - name: JAVA_OPTS
           value: "-XX:+UseParallelGC -XX:ActiveProcessorCount=1 -XX:MaxRAMPercentage=75 -XX:TieredStopAtLevel=1"
+        # OTLP tracing endpoint — same as the default k8s/ topology; without it
+        # the services emit no spans and the e2e Jaeger assertion fails. (Was
+        # missing from this shared-topology manifest.)
+        - name: MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT
+          value: http://jaeger:4318/v1/traces
         - name: PUB_SUB_NAME
           value: pubsub         
         - name: PUB_SUB_TOPIC
@@ -134,8 +144,8 @@ spec:
             cpu: "1"
             memory: "2Gi"
           requests:
-            cpu: "1"
-            memory: "2Gi"
+            cpu: "250m"
+            memory: "512Mi"
         ports:
         - containerPort: 8080
         volumeMounts:
@@ -195,6 +205,11 @@ spec:
         env:
         - name: JAVA_OPTS
           value: "-XX:+UseParallelGC -XX:ActiveProcessorCount=1 -XX:MaxRAMPercentage=75 -XX:TieredStopAtLevel=1"
+        # OTLP tracing endpoint — same as the default k8s/ topology; without it
+        # the services emit no spans and the e2e Jaeger assertion fails. (Was
+        # missing from this shared-topology manifest.)
+        - name: MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT
+          value: http://jaeger:4318/v1/traces
         - name: DAPR_HTTP_ENDPOINT
           value: http://pizza-store-dapr.default.svc.cluster.local:3500
         - name: DAPR_GRPC_ENDPOINT
@@ -218,10 +233,21 @@ spec:
             cpu: "1"
             memory: "2Gi"
           requests:
-            cpu: "1"
-            memory: "2Gi"
+            cpu: "250m"
+            memory: "512Mi"
         ports:
         - containerPort: 8080
+        # Writable /tmp for embedded Tomcat's work dir — required because the
+        # container runs with readOnlyRootFilesystem: true. pizza-kitchen and
+        # pizza-delivery (and the default k8s/ topology) already mount this; it
+        # was missing here, so pizza-store crashed on startup with
+        # "java.io.tmpdir ... /tmp/tomcat.8080...: Read-only file system".
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
