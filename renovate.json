@@ -179,6 +179,19 @@
       ]
     },
     {
+      "description": "Group the local KinD cluster stack so it bumps as a unit: kind + kubectl (mise manager) and the kindest/node image (Makefile custom.regex) are version-locked to the Kubernetes minor. A split bump — e.g. kubectl without the matching node image, or kind without the node image built for its release — would create cluster↔kubectl skew >1 minor or a kind/node mismatch; grouping makes them one PR that passes/fails `make e2e` together. Placed AFTER 'Makefile tools' so it wins the groupName for kindest/node (last-match-wins), and pulls kind+kubectl out of their default ungrouped state. cloud-provider-kind is intentionally excluded — it versions independently of the K8s minor.",
+      "groupName": "KinD stack",
+      "matchManagers": [
+        "mise",
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "kind",
+        "kubectl",
+        "kindest/node"
+      ]
+    },
+    {
       "description": "Disable digest pinning for Makefile-tracked docker dev tools (plantuml, mermaid-cli, cloud-provider-kind). The `docker:pinDigests` preset (from config:best-practices) otherwise generates a `pinDigest` update that collides with the version bump on the `renovate/makefile-tools` branch and silently suppresses the bump. Makefile-tracked deps are dev/lint tools, not production runtime — tag pinning is sufficient. Production-runtime docker pins (k8s `image:` fields) keep their digest pins via the same preset.",
       "matchManagers": [
         "custom.regex"
