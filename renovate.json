@@ -26,7 +26,7 @@
         "/(^|/)Makefile$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)(?:\\s+packageName=(?<packageName>\\S+))?(?:\\s+versioning=(?<versioning>[a-z-]+))?(?:\\s+extractVersion=(?<extractVersion>\\S+))?(?:\\s+registryUrl=(?<registryUrl>\\S+))?\\s*\\n[A-Z_]+\\s*[?:]?=\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)(?:\\s+packageName=(?<packageName>\\S+))?(?:\\s+versioning=(?<versioning>[a-z-]+))?(?:\\s+extractVersion=(?<extractVersion>\\S+))?(?:\\s+registryUrl=(?<registryUrl>\\S+))?\\s*\\n[A-Z0-9_]+\\s*[?:]?=\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
       ]
     }
   ],
@@ -67,6 +67,16 @@
       ],
       "addLabels": [
         "lang: java"
+      ]
+    },
+    {
+      "description": "Group the Java toolchain bump (the mise `java` pin in .mise.toml, the single source of truth). NOTE: pom.xml <java.version>/<maven.compiler.{source,target}> are literal properties the maven manager does not track, and .java-version is tracked by no manager — on a Java major both must be bumped by hand. `make check-java-alignment` (first prerequisite of static-check) fails CI until all four agree, so a mise-only Java bump cannot silently land mismatched.",
+      "groupName": "Java toolchain",
+      "matchManagers": [
+        "mise"
+      ],
+      "matchDepNames": [
+        "java"
       ]
     },
     {

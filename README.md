@@ -105,7 +105,7 @@ The Pizza Store application simulates placing a Pizza Order that is processed by
 
 ### Context View
 
-<img src="docs/diagrams/out/c4-context.png" alt="C4 Context diagram — Pizza on Dapr" width="600">
+<img src="docs/diagrams/out/c4-context.png" alt="C4 Context diagram — Pizza on Dapr" width="240">
 
 A customer interacts with the Pizza Store Platform over HTTPS / WebSocket; the platform delegates service invocation, pub/sub, and state persistence to its co-deployed Dapr Runtime (Helm-installed control plane plus per-pod sidecars). Source: [`docs/diagrams/c4-context.puml`](docs/diagrams/c4-context.puml).
 
@@ -118,7 +118,7 @@ A customer interacts with the Pizza Store Platform over HTTPS / WebSocket; the p
 
 ### Container View
 
-<img src="docs/diagrams/out/c4-container.png" alt="C4 Container diagram" width="800">
+<img src="docs/diagrams/out/c4-container.png" alt="C4 Container diagram" width="520">
 
 - **pizza-store** — frontend + backend; places orders via the Dapr state API (`kvstore`), invokes `kitchen-service`/`delivery-service` via Dapr service invocation, subscribes to `pubsub/topic` CloudEvents on `POST /events`, and pushes live status to the browser via WebSocket `/topic/events`.
 - **pizza-kitchen** — receives `PUT /prepare` through its Dapr sidecar; simulates cooking and publishes `ORDER_IN_PREPARATION` then `ORDER_READY` to the shared `pubsub` component on topic `topic`.
@@ -164,7 +164,7 @@ sequenceDiagram
 
 ### Deployment View
 
-<img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="800">
+<img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="600">
 
 - Three pods in the `default` namespace, one per service (`pizza-store`, `pizza-kitchen`, `pizza-delivery`), each running a single replica with matching `dapr.io/app-id` annotations (`pizza-store`, `kitchen-service`, `delivery-service`).
 - Each pod co-locates the Spring Boot app container with a Dapr sidecar injected via the `dapr.io/enabled` annotation. Cross-pod service invocation flows app → local sidecar → remote sidecar → remote app over mTLS HTTP/gRPC; apps never address each other directly.
@@ -315,7 +315,8 @@ Run `make help` to see all available targets.
 
 | Target | Description |
 |--------|-------------|
-| `make static-check` | Composite gate: `format-check` + `lint` + `trivy-fs` + `trivy-config` + `secrets` + `diagrams-check` + `mermaid-lint` + `k8s-validate` |
+| `make static-check` | Composite gate: `check-java-alignment` + `format-check` + `lint` + `trivy-fs` + `trivy-config` + `secrets` + `diagrams-check` + `mermaid-lint` + `k8s-validate` |
+| `make check-java-alignment` | Fail-fast precheck that the Java major matches across `.mise.toml`, `.java-version`, and `pom.xml` (`java.version` + `maven.compiler.{source,target}`); first prerequisite of `static-check` |
 | `make k8s-validate` | Validate `k8s/` + `k8s-dapr-shared/` manifests against vendored OpenAPI via kubeconform (no cluster needed) |
 | `make lint` | Run Checkstyle static analysis |
 | `make format` | Auto-format Java source (google-java-format) |
@@ -359,7 +360,7 @@ Run `make help` to see all available targets.
 
 | Target | Description |
 |--------|-------------|
-| `make ci` | Local CI pipeline: `clean deps static-check test integration-test build coverage-check` (cve-check is separate — run `make cve-check` before pushing a release tag) |
+| `make ci` | Local CI pipeline: `clean deps static-check coverage-generate coverage-check build` (cve-check and image-scan are separate — run `make pre-release` before pushing a release tag) |
 | `make ci-run` | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act); jobs are serialized with `act --job` |
 
 ### Dependencies & Tools
@@ -391,7 +392,7 @@ GitHub Actions runs on push to `main`, tags `v*`, pull requests, a weekly schedu
 | Job | Triggers | Depends on | Steps |
 |-----|----------|-----------|-------|
 | **changes** | push, PR, tags | — | `dorny/paths-filter` emits `code` (binary skip-everything-on-docs-only) and `e2e` (heavy KinD job gating) flags consumed by downstream jobs |
-| **static-check** | push, PR, tags (`code` flag) | `changes` | `make static-check` (format-check, Checkstyle, trivy-fs, trivy-config, gitleaks, diagrams-check, mermaid-lint, k8s-validate); `fetch-depth: 0` so gitleaks can walk history |
+| **static-check** | push, PR, tags (`code` flag) | `changes` | `make static-check` (check-java-alignment, format-check, Checkstyle, trivy-fs, trivy-config, gitleaks, diagrams-check, mermaid-lint, k8s-validate); `fetch-depth: 0` so gitleaks can walk history |
 | **build** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make build`; tag-gated artifact upload of `pizza-*/target/*.jar` |
 | **test** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make test` (Surefire unit tests only — fast feedback) |
 | **integration-test** | push, PR, tags (`code` flag) | `changes`, `static-check` | `make coverage-generate` + `make coverage-check`; runs surefire + failsafe + merged-coverage gate; uploads JaCoCo report |
