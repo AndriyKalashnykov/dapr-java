@@ -1,0 +1,29 @@
+# OWASP ZAP baseline scan rule overrides for the pizza-store DAST gate.
+# Format (per zaproxy zap_common.py load_config): each non-comment line MUST be
+# at least 3 TAB-separated columns — <pluginId>\t<IGNORE|WARN|FAIL>\t<message>.
+# Column 3 is a free-text reason (shown by ZAP); it is REQUIRED (a 2-column line
+# fails with "Unexpected number of tokens on line - there should be at least 3").
+# Consumed by the `ZAP baseline scan` step in .github/workflows/ci.yml via the
+# `rules_file_name` input. Every IGNORE is a deliberate, documented acceptance —
+# the fixable findings (CSP, anti-clickjacking, nosniff, Permissions-Policy,
+# COOP, CORP, SRI) are FIXED in code (SecurityHeadersFilter + Subresource-
+# Integrity in index.html), not ignored. Re-evaluate on each ZAP stable-image
+# bump; remove an entry if the underlying finding no longer fires.
+#
+# 10017 Cross-Domain JavaScript Source File Inclusion: jQuery/STOMP/Bootstrap are
+#   loaded from pinned CDN URLs, each guarded by a Subresource-Integrity sha384
+#   hash + crossorigin=anonymous, so a tampered payload is rejected. Pinned+SRI'd
+#   CDN inclusion is the project's established pattern; not a defect.
+# 90004 Insufficient Site Isolation (COEP/COOP/CORP): COOP and CORP ARE set
+#   (same-origin) by SecurityHeadersFilter; only COEP is omitted — require-corp
+#   would force every cross-origin CDN subresource to opt in via CORP for no
+#   benefit absent cross-origin-isolation needs (no SharedArrayBuffer here).
+# 10049 Storable and Cacheable Content (Informational): demo app; not a finding.
+# 10109 Modern Web Application (Informational): ZAP note, not a vulnerability.
+# 10055 CSP analysis (style-src 'unsafe-inline'): kept for jQuery runtime styling
+#   ONLY; script-src carries NO inline allowance (the high-value protection).
+10017	IGNORE	Cross-domain JS — pinned + SRI'd CDN scripts (accepted pattern)
+90004	IGNORE	COEP intentionally omitted; COOP and CORP are set by SecurityHeadersFilter
+10049	IGNORE	Storable/Cacheable Content — informational, demo app
+10109	IGNORE	Modern Web Application — informational ZAP note, not a vulnerability
+10055	IGNORE	style-src 'unsafe-inline' for jQuery; script-src has no inline allowance

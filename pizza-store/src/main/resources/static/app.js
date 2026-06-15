@@ -205,3 +205,8 @@ $(function () {
     $("#completedFake").click(() => completedFake());
     $("#disconnect").click(() => disconnect());
 });
+
+// Establish the STOMP/WebSocket connection on page load. Previously wired via an
+// inline `onload="connect()"` on <body>; moved here so the page can ship a
+// Content-Security-Policy without a script 'unsafe-inline' allowance.
+window.addEventListener('load', connect);

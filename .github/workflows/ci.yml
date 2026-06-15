@@ -462,9 +462,12 @@ jobs:
     # (ZAP baseline ~2 min) and avoids burning a full ZAP run on a broken
     # cluster. Baseline scan is passive (no fuzzing, no destructive payloads),
     # so safe to run against the live e2e LB. SARIF upload to the Security tab
-    # makes findings reviewable per-PR. continue-on-error: true keeps the e2e
-    # job from failing on advisory ZAP findings — promote to strict once the
-    # baseline is clean and a regression budget is set.
+    # makes findings reviewable per-PR. STRICT gate: pizza-store now ships the
+    # baseline security headers (SecurityHeadersFilter) + Subresource-Integrity,
+    # so the fixable findings are closed in code; the residual accepted findings
+    # are documented in .zap/rules.tsv (IGNORE). fail_action: true + a clean
+    # rules budget means a NEW finding (e.g. from a ZAP stable-image bump) fails
+    # the e2e job — the promotion the upgrade backlog called for.
     - name: Resolve LoadBalancer IP
       id: lb
       run: |
@@ -473,16 +476,17 @@ jobs:
 
     - name: ZAP baseline scan
       uses: zaproxy/action-baseline@6c5a007541891231cd9e0ddec25d4f25c59c9874 # v0.15.0
-      continue-on-error: true
       with:
         target: ${{ steps.lb.outputs.url }}
+        # .zap/rules.tsv documents the deliberately-accepted residual alerts
+        # (IGNORE) so strict mode fails only on NEW/unbudgeted findings.
+        rules_file_name: '.zap/rules.tsv'
         # Don't override -J/-w via cmd_options: the action always injects
         # `-J report_json.json -w report_md.md -r report_html.html` itself
         # and then validates those files post-run. Custom -J/-w in cmd_options
         # redirects ZAP's output away from the action's expected names,
-        # making the action emit `##[error]File ... does not exist` even
-        # though continue-on-error is set.
-        fail_action: false
+        # making the action emit `##[error]File ... does not exist`.
+        fail_action: true
         allow_issue_writing: false
 
     - name: Upload ZAP baseline report

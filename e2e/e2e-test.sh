@@ -290,10 +290,28 @@ for _ in $(seq 1 20); do
 done
 
 for svc in pizza-store pizza-kitchen pizza-delivery; do
-  if echo "$JAEGER_SERVICES" | grep -q "$svc,"; then
-    pass "Jaeger has spans from $svc"
-  else
+  if ! echo "$JAEGER_SERVICES" | grep -q "$svc,"; then
     fail "Jaeger has NO spans from $svc (services seen: ${JAEGER_SERVICES:-<none>})"
+    continue
+  fi
+  pass "Jaeger lists service $svc"
+  # /api/services returns a service name once it has EVER emitted a span and
+  # caches it ~indefinitely, so a green /api/services can mask a regression
+  # where trace delivery silently stopped. Assert a trace was actually
+  # DELIVERED during THIS run by fetching one and requiring a non-empty data[].
+  # Short retry absorbs Jaeger's span-indexing lag after the lifecycle above.
+  TRACE_COUNT=0
+  for _ in $(seq 1 10); do
+    TRACE_COUNT=$(curl -sf --max-time 3 \
+      "http://127.0.0.1:16686/api/traces?service=${svc}&limit=1&lookback=1h" 2>/dev/null \
+      | jq -r '(.data | length) // 0' 2>/dev/null || echo 0)
+    [ "${TRACE_COUNT:-0}" -ge 1 ] && break
+    sleep 2
+  done
+  if [ "${TRACE_COUNT:-0}" -ge 1 ]; then
+    pass "Jaeger has a queryable trace for $svc this run (data[]=$TRACE_COUNT)"
+  else
+    fail "Jaeger lists $svc but /api/traces returned 0 traces — service name cached without live span delivery"
   fi
 done
 
