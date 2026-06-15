@@ -292,3 +292,8 @@ button:hover:enabled {
     justify-content: center;
 }
 }
+/* noscript fallback warning — moved off an inline style="color:#ff0000" so the
+   page ships a Content-Security-Policy without a style 'unsafe-inline' need for it. */
+.noscript-warning {
+    color: #ff0000;
+}

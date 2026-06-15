@@ -1,0 +1,41 @@
+# OWASP ZAP baseline scan rule overrides for the pizza-store DAST gate.
+# Format: <pluginId>\t<IGNORE|WARN|FAIL>\t<optional url-regex>
+# Consumed by the `ZAP baseline scan` step in .github/workflows/ci.yml via the
+# `rules_file_name` input. Every IGNORE below is a deliberate, documented
+# acceptance — the fixable findings (CSP, anti-clickjacking, nosniff,
+# Permissions-Policy, COOP, CORP, SRI) are FIXED in code (SecurityHeadersFilter
+# + Subresource-Integrity in index.html), not ignored. Re-evaluate on each ZAP
+# stable-image bump; remove an entry if the underlying finding no longer fires.
+
+# 10017 — Cross-Domain JavaScript Source File Inclusion.
+# The frontend loads jQuery (code.jquery.com), STOMP (cdn.jsdelivr.net) and
+# Bootstrap (maxcdn.bootstrapcdn.com) from pinned CDN URLs, each guarded with a
+# Subresource-Integrity (sha384) hash + crossorigin="anonymous" so a tampered
+# CDN payload is rejected by the browser. Pinned + SRI'd CDN inclusion is the
+# project's established pattern; not a defect.
+10017	IGNORE
+
+# 90004 — Insufficient Site Isolation Against Spectre (COEP/COOP/CORP).
+# Cross-Origin-Opener-Policy and Cross-Origin-Resource-Policy ARE set
+# (same-origin) by SecurityHeadersFilter; only Cross-Origin-Embedder-Policy is
+# intentionally omitted — require-corp would force every cross-origin CDN
+# subresource to opt in via CORP and provides no benefit without
+# cross-origin-isolation needs (no SharedArrayBuffer in this app).
+90004	IGNORE
+
+# 10049 — Storable and Cacheable Content (Informational).
+# Demo app; the cacheability of static assets / order JSON is not a security
+# finding worth a per-response Cache-Control policy here.
+10049	IGNORE
+
+# 10109 — Modern Web Application (Informational).
+# Purely informational ZAP note that the target is a JS-driven SPA-style page;
+# not a vulnerability.
+10109	IGNORE
+
+# 10055 — CSP analysis (e.g. style-src 'unsafe-inline').
+# The CSP keeps 'unsafe-inline' for style-src ONLY (jQuery sets element styles at
+# runtime). script-src carries NO inline allowance — the high-value protection
+# (no inline/eval script execution) is intact. Accepting the weaker style-src is
+# a deliberate trade-off for jQuery compatibility on this demo frontend.
+10055	IGNORE
