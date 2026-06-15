@@ -68,6 +68,12 @@ jobs:
           code:
             - '!(**.md|docs/**|specs/**|LICENSE|.gitignore|.claudeignore|.claude/**|benchmarks/**|**.png|**.jpg|**.gif|**.svg)'
             - 'CLAUDE.md'
+            # Re-include diagram sources (excluded by the docs/** negation above)
+            # so static-check's diagrams-check drift gate runs on a .puml-only
+            # change — including a Renovate C4-PlantUML / plantuml-image bump.
+            # Otherwise such a change is classified docs-only, static-check is
+            # skipped, and stale PNGs merge with a green (skipped) gate.
+            - 'docs/diagrams/**/*.puml'
           e2e:
             - 'k8s/**'
             - 'k8s-dapr-shared/**'

@@ -2,6 +2,12 @@
 !include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.13.0/C4_Container.puml
 !include _skinparam.iuml
 
+' Left-to-right flow: the customer → store → sidecar → kitchen/delivery →
+' components chain is near-linear, which PlantUML otherwise stacks into a tall
+' portrait (~708x1262). LR layout makes it landscape so the README embed isn't
+' a "humongous" vertical strip.
+LAYOUT_LEFT_RIGHT()
+
 title Container View — Pizza on Dapr
 
 Person(customer, "Customer", "Places and tracks pizza orders")
