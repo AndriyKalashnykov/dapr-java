@@ -46,10 +46,12 @@ GJF_VERSION := 1.35.0
 # renovate: datasource=docker depName=registry.k8s.io/cloud-provider-kind/cloud-controller-manager
 CLOUD_PROVIDER_KIND_VERSION := 0.10.0
 # renovate: datasource=docker depName=kindest/node
-KIND_NODE_VERSION := v1.35.1
+KIND_NODE_VERSION := v1.36.1
 # Digest pin for KIND_NODE_VERSION above (kindest/node@sha256:...). Renovate's
 # `docker:pinDigests` preset keeps this in sync with the tag via its own update.
-KIND_NODE_DIGEST := sha256:05d7bcdefbda08b4e038f644c4df690cdac3fba8b06f8289f30e10026720a1ab
+# This is the v1.36.1 node image built for KinD v0.32.0 (kind 0.32.0 in
+# .mise.toml) — KinD requires the @sha256 digest matched to its own release.
+KIND_NODE_DIGEST := sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
 KIND_NODE_IMAGE := kindest/node:$(KIND_NODE_VERSION)@$(KIND_NODE_DIGEST)
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
 DAPR_HELM_VERSION := 1.17.7
@@ -395,24 +397,31 @@ cve-check: deps-check
 	@# pom.xml pluginManagement (12.2.2). Same pattern applied to every
 	@# other plugin invocation in this Makefile — see deps-prune,
 	@# coverage-check, print-deps-updates, update-deps, image-build.
-	@# Sonatype OSS Index is deliberately DISABLED here (-DossindexAnalyzerEnabled=false).
-	@# OSS Index now mandates token auth and its free tier rate-limits large
-	@# dependency trees: a Spring Boot multi-module app expands to 170+
-	@# component-report batches and trips the limit, which Sonatype returns as
-	@# HTTP 401 (mis-classified as bad-auth) and which
-	@# -DossIndexAnalyzerWarnOnlyOnRemoteErrors does NOT catch — a half-completed
-	@# OSS Index run then fails the whole scan. NVD is the authoritative source
-	@# here. To re-enable on a slimmed dep tree or a paid OSS Index tier, drop
-	@# this flag and wire OSS_INDEX_USER/OSS_INDEX_TOKEN via a settings.xml
-	@# <server id="ossindex"> + -DossIndexServerId=ossindex (same printf pattern
-	@# as the NVD key below — never -DossIndexUser=$$VAR, which leaks via argv).
-	@if [ -n "$$NVD_API_KEY" ]; then \
-		mkdir -p $$HOME/.m2; \
-		( umask 077 && printf '<settings><servers><server><id>nvd</id><password>%s</password></server></servers></settings>\n' "$$NVD_API_KEY" > $$HOME/.m2/settings.xml ); \
-		mvn -B org.owasp:dependency-check-maven:check -DnvdApiServerId=nvd -DossindexAnalyzerEnabled=false; \
-	else \
-		mvn -B org.owasp:dependency-check-maven:check -DossindexAnalyzerEnabled=false; \
-	fi
+	@# Sonatype OSS Index is wired here as a second source alongside NVD, via
+	@# OSS_INDEX_USER (account email) + OSS_INDEX_TOKEN routed through the same
+	@# settings.xml <server id="ossindex"> block (printf builtin, umask 077 — the
+	@# token never lands in argv; -DossIndexUser=$$VAR / -DossIndexPassword=$$VAR
+	@# flag forms would leak via `ps -ef` / `/proc/<pid>/cmdline`). When the OSS
+	@# Index creds are absent the analyzer is DISABLED (it now mandates token
+	@# auth and cannot run anonymously) rather than silently degrading.
+	@# CAVEAT: OSS Index's free tier rate-limits large dependency trees — a
+	@# Spring Boot multi-module app expands to 170+ component-report batches and
+	@# can trip the limit, which Sonatype returns as HTTP 401 (mis-classified as
+	@# bad-auth) and which -DossIndexAnalyzerWarnOnlyOnRemoteErrors does NOT
+	@# catch. If cve-check starts failing on OSS Index 401s, slim the tree, move
+	@# to a paid tier, or set -DossindexAnalyzerEnabled=false with a rationale.
+	@mkdir -p $$HOME/.m2; \
+	SERVERS=""; NVD_FLAG=""; OSS_FLAG="-DossindexAnalyzerEnabled=false"; \
+	if [ -n "$$NVD_API_KEY" ]; then \
+		SERVERS="$$SERVERS<server><id>nvd</id><password>$$NVD_API_KEY</password></server>"; \
+		NVD_FLAG="-DnvdApiServerId=nvd"; \
+	fi; \
+	if [ -n "$$OSS_INDEX_USER" ] && [ -n "$$OSS_INDEX_TOKEN" ]; then \
+		SERVERS="$$SERVERS<server><id>ossindex</id><username>$$OSS_INDEX_USER</username><password>$$OSS_INDEX_TOKEN</password></server>"; \
+		OSS_FLAG="-DossIndexServerId=ossindex"; \
+	fi; \
+	( umask 077 && printf '<settings><servers>%s</servers></settings>\n' "$$SERVERS" > $$HOME/.m2/settings.xml ); \
+	mvn -B org.owasp:dependency-check-maven:check $$NVD_FLAG $$OSS_FLAG
 
 #coverage-generate: @ Generate merged unit + integration coverage report
 coverage-generate: deps-check

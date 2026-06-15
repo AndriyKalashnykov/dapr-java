@@ -11,8 +11,8 @@ node = "22.22.3"
 act = "0.2.88"
 trivy = "0.70.0"
 gitleaks = "8.30.1"
-kind = "0.31.0"
-kubectl = "1.35.4"
+kind = "0.32.0"
+kubectl = "1.36.2"
 helm = "4.2.0"
 # kubeconform validates k8s manifest YAML against vendored OpenAPI schemas
 # (no cluster needed). Used by `make k8s-validate` to gate every push on
