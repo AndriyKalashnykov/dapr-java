@@ -27,14 +27,14 @@ C4Context
 |-----------|-----------|-----------|
 | Language | Java 21 LTS | Current LTS with virtual threads and pattern matching |
 | Framework | Spring Boot 4.0.7 | Current GA; provides embedded Tomcat, auto-configuration, and Actuator |
-| Runtime sidecar | Dapr 1.17.7 (Helm) / 1.17.2 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
-| Dapr SDK | `dapr-spring-boot-4-starter` 1.17.2 | Latest stable on Maven Central; 1.17.3 is RC-only |
+| Runtime sidecar | Dapr 1.17.7 (Helm) / 1.17.3 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
+| Dapr SDK | `dapr-spring-boot-4-starter` 1.17.3 | On the 1.17 line to match the 1.17.7 runtime; 1.18.0 is also GA but held until the runtime moves to 1.18 (SDK-on-or-behind-runtime cadence) |
 | HTTP server | Embedded Tomcat 11.0.22 | Pinned in `dependencyManagement` to address CVEs |
 | JSON | Jackson 3.1.3 | Pinned to address CVE-reported 2.x transitive dependencies |
 | gRPC | gRPC 1.81.0 | Pinned to address CVEs in older Spring-Boot-managed version |
 | Netty | Netty 4.2.15.Final (BOM) | Pinned via BOM ordered ahead of `spring-boot-dependencies` to address [CVE-2026-42583](https://avd.aquasec.com/nvd/cve-2026-42583) (Lz4FrameDecoder), [CVE-2026-42584](https://avd.aquasec.com/nvd/cve-2026-42584) (HttpClientCodec desync), [CVE-2026-42587](https://avd.aquasec.com/nvd/cve-2026-42587) (HttpContentDecompressor), and [CVE-2026-44249](https://avd.aquasec.com/nvd/cve-2026-44249) / [CVE-2026-45416](https://avd.aquasec.com/nvd/cve-2026-45416) (netty-handler IPv6 subnet rule bypass) |
 | Build | Maven 3.9.16 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
-| Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
+| Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.3 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy fs/config/image + gitleaks | Composite `make static-check` gate |
 | Observability | `spring-boot-starter-opentelemetry` 4.0.7 (umbrella starter — bundles `spring-boot-micrometer-tracing-opentelemetry` + `spring-boot-opentelemetry` autoconfig + `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) + OpenTelemetry 1.62.0 SDK + Jaeger all-in-one 1.65.0 for e2e | Spans flow Spring Observation → OTel SDK → OTLP/HTTP → Jaeger collector. The lower-level deps (`micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) ship the runtime but NOT the SB 4.0 autoconfig modules (which live in `spring-boot-micrometer-tracing-opentelemetry`) — use the starter |
 | CVE scan | OWASP dependency-check 12.2.2 (`make cve-check`) | Pre-tag release gate + weekly scheduled run; settings.xml routes `NVD_API_KEY` + Sonatype OSS Index (`OSS_INDEX_USER`/`OSS_INDEX_TOKEN`) — two CVE sources, no argv leak |
@@ -214,7 +214,7 @@ Tests use [Testcontainers](https://testcontainers.com) with [`io.dapr:testcontai
 ```mermaid
 flowchart LR
   mvn["mvn test (JUnit 5)"] --> tc["Testcontainers runtime"]
-  tc -->|starts| dapr["Dapr sidecar container<br/>(testcontainers-dapr 1.17.2)"]
+  tc -->|starts| dapr["Dapr sidecar container<br/>(testcontainers-dapr 1.17.3)"]
   tc -->|starts| wm["WireMock container<br/>(kitchen-service-stubs.json)"]
   dapr -->|pubsub.in-memory| app["Spring Boot 4 app<br/>@SpringBootTest"]
   wm --> app
