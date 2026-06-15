@@ -26,7 +26,7 @@ C4Context
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
 | Language | Java 21 LTS | Current LTS with virtual threads and pattern matching |
-| Framework | Spring Boot 4.0.6 | Current GA; provides embedded Tomcat, auto-configuration, and Actuator |
+| Framework | Spring Boot 4.0.7 | Current GA; provides embedded Tomcat, auto-configuration, and Actuator |
 | Runtime sidecar | Dapr 1.17.7 (Helm) / 1.17.2 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
 | Dapr SDK | `dapr-spring-boot-4-starter` 1.17.2 | Latest stable on Maven Central; 1.17.3 is RC-only |
 | HTTP server | Embedded Tomcat 11.0.22 | Pinned in `dependencyManagement` to address CVEs |
@@ -36,7 +36,7 @@ C4Context
 | Build | Maven 3.9.16 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
 | Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy fs/config/image + gitleaks | Composite `make static-check` gate |
-| Observability | `spring-boot-starter-opentelemetry` 4.0.6 (umbrella starter — bundles `spring-boot-micrometer-tracing-opentelemetry` + `spring-boot-opentelemetry` autoconfig + `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) + OpenTelemetry 1.62.0 SDK + Jaeger all-in-one 1.65.0 for e2e | Spans flow Spring Observation → OTel SDK → OTLP/HTTP → Jaeger collector. The lower-level deps (`micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) ship the runtime but NOT the SB 4.0 autoconfig modules (which live in `spring-boot-micrometer-tracing-opentelemetry`) — use the starter |
+| Observability | `spring-boot-starter-opentelemetry` 4.0.7 (umbrella starter — bundles `spring-boot-micrometer-tracing-opentelemetry` + `spring-boot-opentelemetry` autoconfig + `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) + OpenTelemetry 1.62.0 SDK + Jaeger all-in-one 1.65.0 for e2e | Spans flow Spring Observation → OTel SDK → OTLP/HTTP → Jaeger collector. The lower-level deps (`micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) ship the runtime but NOT the SB 4.0 autoconfig modules (which live in `spring-boot-micrometer-tracing-opentelemetry`) — use the starter |
 | CVE scan | OWASP dependency-check 12.2.2 (`make cve-check`) | Pre-tag release gate + weekly scheduled run; settings.xml routes `NVD_API_KEY` + Sonatype OSS Index (`OSS_INDEX_USER`/`OSS_INDEX_TOKEN`) — two CVE sources, no argv leak |
 | DAST | OWASP ZAP baseline scan ([`zaproxy/action-baseline@v0.15.0`](https://github.com/zaproxy/action-baseline)) | Runs against the LB-exposed `pizza-store` after e2e passes; advisory until baseline stabilizes |
 | Image build | Paketo CNB (`spring-boot:build-image`); multi-arch (amd64+arm64) on native runners | No `Dockerfile` — Paketo composes the OCI layers |

@@ -15,9 +15,9 @@ Deployment_Node(k8s, "Kubernetes cluster", "v1.35+") {
     ' a Dapr identity, not a separate runtime. Keeps the deployment view
     ' focused on Pods and their Dapr app-id, not on every container in
     ' each Pod.
-    Container(storePod, "Pod: pizza-store + Dapr sidecar", "Spring Boot 4.0.6, Java 21 (app-id: pizza-store)")
-    Container(kitchenPod, "Pod: pizza-kitchen + Dapr sidecar", "Spring Boot 4.0.6, Java 21 (app-id: kitchen-service)")
-    Container(deliveryPod, "Pod: pizza-delivery + Dapr sidecar", "Spring Boot 4.0.6, Java 21 (app-id: delivery-service)")
+    Container(storePod, "Pod: pizza-store + Dapr sidecar", "Spring Boot 4.0.7, Java 21 (app-id: pizza-store)")
+    Container(kitchenPod, "Pod: pizza-kitchen + Dapr sidecar", "Spring Boot 4.0.7, Java 21 (app-id: kitchen-service)")
+    Container(deliveryPod, "Pod: pizza-delivery + Dapr sidecar", "Spring Boot 4.0.7, Java 21 (app-id: delivery-service)")
 
     ContainerQueue(pubsub, "PubSub backend", "Kafka (managed) / Redis (e2e)")
     ContainerDb(state, "State Store backend", "PostgreSQL (managed) / Redis (e2e)")
