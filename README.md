@@ -118,7 +118,7 @@ A customer interacts with the Pizza Store Platform over HTTPS / WebSocket; the p
 
 ### Container View
 
-<img src="docs/diagrams/out/c4-container.png" alt="C4 Container diagram" width="440">
+<img src="docs/diagrams/out/c4-container.png" alt="C4 Container diagram" width="800">
 
 - **pizza-store** — frontend + backend; places orders via the Dapr state API (`kvstore`), invokes `kitchen-service`/`delivery-service` via Dapr service invocation, subscribes to `pubsub/topic` CloudEvents on `POST /events`, and pushes live status to the browser via WebSocket `/topic/events`.
 - **pizza-kitchen** — receives `PUT /prepare` through its Dapr sidecar; simulates cooking and publishes `ORDER_IN_PREPARATION` then `ORDER_READY` to the shared `pubsub` component on topic `topic`.
