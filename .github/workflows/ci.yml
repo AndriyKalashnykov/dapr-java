@@ -92,12 +92,16 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Set up JDK
-      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    # Java + Maven are provisioned by jdx/mise-action from .mise.toml (single
+    # source of truth; alignment with .java-version + pom.xml is enforced by
+    # `make check-java-alignment`). A dedicated ~/.m2 cache replaces the maven
+    # cache that actions/setup-java used to provide.
+    - name: Cache Maven packages
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
-        java-version-file: '.java-version'
-        distribution: 'temurin'
-        cache: 'maven'
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
 
     # mise provides Maven + trivy + gitleaks + kubeconform (pinned in
     # .mise.toml) for the static-check composite gate (format-check,
@@ -107,6 +111,7 @@ jobs:
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
+        install: true
         cache: true
 
     - name: Static check
@@ -123,12 +128,16 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - name: Set up JDK
-      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    # Java + Maven are provisioned by jdx/mise-action from .mise.toml (single
+    # source of truth; alignment with .java-version + pom.xml is enforced by
+    # `make check-java-alignment`). A dedicated ~/.m2 cache replaces the maven
+    # cache that actions/setup-java used to provide.
+    - name: Cache Maven packages
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
-        java-version-file: '.java-version'
-        distribution: 'temurin'
-        cache: 'maven'
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
 
     # mise provides Maven (pinned in .mise.toml) for the build. Required on
     # every `make`-running job per /ci-workflow §"jdx/mise-action coverage";
@@ -137,6 +146,7 @@ jobs:
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
+        install: true
         cache: true
 
     - name: Build
@@ -170,17 +180,22 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - name: Set up JDK
-      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    # Java + Maven are provisioned by jdx/mise-action from .mise.toml (single
+    # source of truth; alignment with .java-version + pom.xml is enforced by
+    # `make check-java-alignment`). A dedicated ~/.m2 cache replaces the maven
+    # cache that actions/setup-java used to provide.
+    - name: Cache Maven packages
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
-        java-version-file: '.java-version'
-        distribution: 'temurin'
-        cache: 'maven'
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
 
     # mise provides Maven (pinned in .mise.toml). See `build` job for rationale.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
+        install: true
         cache: true
 
     - name: Test
@@ -202,17 +217,22 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - name: Set up JDK
-      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    # Java + Maven are provisioned by jdx/mise-action from .mise.toml (single
+    # source of truth; alignment with .java-version + pom.xml is enforced by
+    # `make check-java-alignment`). A dedicated ~/.m2 cache replaces the maven
+    # cache that actions/setup-java used to provide.
+    - name: Cache Maven packages
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
-        java-version-file: '.java-version'
-        distribution: 'temurin'
-        cache: 'maven'
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
 
     # mise provides Maven (pinned in .mise.toml). See `build` job for rationale.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
+        install: true
         cache: true
 
     - name: Integration test
@@ -250,24 +270,36 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - name: Set up JDK
-      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    # Java + Maven are provisioned by jdx/mise-action from .mise.toml (single
+    # source of truth; alignment with .java-version + pom.xml is enforced by
+    # `make check-java-alignment`). A dedicated ~/.m2 cache replaces the maven
+    # cache that actions/setup-java used to provide.
+    - name: Cache Maven packages
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
-        java-version-file: '.java-version'
-        distribution: 'temurin'
-        cache: 'maven'
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
 
     # mise provides Maven (pinned in .mise.toml). See `build` job for rationale.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
+        install: true
         cache: true
+
+    # The NVD database is independent of the project's dependencies, so keying
+    # it on pom.xml would evict the ~30-min download on every version bump.
+    # Key on the ISO week instead so it refreshes weekly and survives dep bumps.
+    - name: Compute NVD cache week
+      id: nvdweek
+      run: echo "week=$(date -u +%Y-%V)" >> "$GITHUB_OUTPUT"
 
     - name: Cache NVD database
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
         path: ~/.m2/repository/org/owasp/dependency-check-data
-        key: nvd-db-${{ hashFiles('pom.xml') }}
+        key: nvd-db-${{ steps.nvdweek.outputs.week }}
         restore-keys: nvd-db-
 
     # dependency-check 12.2.2 (2026-05-03) ships the upstream fix for the
@@ -312,18 +344,23 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - name: Set up JDK
-      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    # Java + Maven are provisioned by jdx/mise-action from .mise.toml (single
+    # source of truth; alignment with .java-version + pom.xml is enforced by
+    # `make check-java-alignment`). A dedicated ~/.m2 cache replaces the maven
+    # cache that actions/setup-java used to provide.
+    - name: Cache Maven packages
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
-        java-version-file: '.java-version'
-        distribution: 'temurin'
-        cache: 'maven'
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
 
     # mise provides Maven + trivy (pinned in .mise.toml) for the image
     # scan gate.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
+        install: true
         cache: true
 
     # GATE 1+2: Paketo CNB build + Trivy image scan
@@ -395,12 +432,16 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - name: Set up JDK
-      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    # Java + Maven are provisioned by jdx/mise-action from .mise.toml (single
+    # source of truth; alignment with .java-version + pom.xml is enforced by
+    # `make check-java-alignment`). A dedicated ~/.m2 cache replaces the maven
+    # cache that actions/setup-java used to provide.
+    - name: Cache Maven packages
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
-        java-version-file: '.java-version'
-        distribution: 'temurin'
-        cache: 'maven'
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
 
     # mise provides Maven + kind + kubectl + helm + trivy + gitleaks +
     # websocat + container-structure-test (pinned in .mise.toml) for the
@@ -408,6 +449,7 @@ jobs:
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
+        install: true
         cache: true
 
     - name: End-to-end tests
@@ -520,18 +562,23 @@ jobs:
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-    - name: Set up JDK
-      uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+    # Java + Maven are provisioned by jdx/mise-action from .mise.toml (single
+    # source of truth; alignment with .java-version + pom.xml is enforced by
+    # `make check-java-alignment`). A dedicated ~/.m2 cache replaces the maven
+    # cache that actions/setup-java used to provide.
+    - name: Cache Maven packages
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
-        java-version-file: '.java-version'
-        distribution: 'temurin'
-        cache: 'maven'
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
 
     # mise provides Maven + trivy (pinned in .mise.toml) for the image
     # scan gate.
     - name: Install mise
       uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
       with:
+        install: true
         cache: true
 
     - name: Compute version tag

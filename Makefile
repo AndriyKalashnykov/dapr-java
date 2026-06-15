@@ -395,12 +395,23 @@ cve-check: deps-check
 	@# pom.xml pluginManagement (12.2.2). Same pattern applied to every
 	@# other plugin invocation in this Makefile — see deps-prune,
 	@# coverage-check, print-deps-updates, update-deps, image-build.
+	@# Sonatype OSS Index is deliberately DISABLED here (-DossindexAnalyzerEnabled=false).
+	@# OSS Index now mandates token auth and its free tier rate-limits large
+	@# dependency trees: a Spring Boot multi-module app expands to 170+
+	@# component-report batches and trips the limit, which Sonatype returns as
+	@# HTTP 401 (mis-classified as bad-auth) and which
+	@# -DossIndexAnalyzerWarnOnlyOnRemoteErrors does NOT catch — a half-completed
+	@# OSS Index run then fails the whole scan. NVD is the authoritative source
+	@# here. To re-enable on a slimmed dep tree or a paid OSS Index tier, drop
+	@# this flag and wire OSS_INDEX_USER/OSS_INDEX_TOKEN via a settings.xml
+	@# <server id="ossindex"> + -DossIndexServerId=ossindex (same printf pattern
+	@# as the NVD key below — never -DossIndexUser=$$VAR, which leaks via argv).
 	@if [ -n "$$NVD_API_KEY" ]; then \
 		mkdir -p $$HOME/.m2; \
 		( umask 077 && printf '<settings><servers><server><id>nvd</id><password>%s</password></server></servers></settings>\n' "$$NVD_API_KEY" > $$HOME/.m2/settings.xml ); \
-		mvn -B org.owasp:dependency-check-maven:check -DnvdApiServerId=nvd; \
+		mvn -B org.owasp:dependency-check-maven:check -DnvdApiServerId=nvd -DossindexAnalyzerEnabled=false; \
 	else \
-		mvn -B org.owasp:dependency-check-maven:check; \
+		mvn -B org.owasp:dependency-check-maven:check -DossindexAnalyzerEnabled=false; \
 	fi
 
 #coverage-generate: @ Generate merged unit + integration coverage report
