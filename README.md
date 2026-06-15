@@ -32,7 +32,7 @@ C4Context
 | HTTP server | Embedded Tomcat 11.0.22 | Pinned in `dependencyManagement` to address CVEs |
 | JSON | Jackson 3.1.3 | Pinned to address CVE-reported 2.x transitive dependencies |
 | gRPC | gRPC 1.81.0 | Pinned to address CVEs in older Spring-Boot-managed version |
-| Netty | Netty 4.2.14.Final (BOM) | Pinned via BOM ordered ahead of `spring-boot-dependencies` to address [CVE-2026-42583](https://avd.aquasec.com/nvd/cve-2026-42583) (Lz4FrameDecoder), [CVE-2026-42584](https://avd.aquasec.com/nvd/cve-2026-42584) (HttpClientCodec desync), [CVE-2026-42587](https://avd.aquasec.com/nvd/cve-2026-42587) (HttpContentDecompressor) |
+| Netty | Netty 4.2.15.Final (BOM) | Pinned via BOM ordered ahead of `spring-boot-dependencies` to address [CVE-2026-42583](https://avd.aquasec.com/nvd/cve-2026-42583) (Lz4FrameDecoder), [CVE-2026-42584](https://avd.aquasec.com/nvd/cve-2026-42584) (HttpClientCodec desync), [CVE-2026-42587](https://avd.aquasec.com/nvd/cve-2026-42587) (HttpContentDecompressor), and [CVE-2026-44249](https://avd.aquasec.com/nvd/cve-2026-44249) / [CVE-2026-45416](https://avd.aquasec.com/nvd/cve-2026-45416) (netty-handler IPv6 subnet rule bypass) |
 | Build | Maven 3.9.16 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
 | Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy fs/config/image + gitleaks | Composite `make static-check` gate |
