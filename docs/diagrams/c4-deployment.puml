@@ -6,7 +6,7 @@ title Deployment — Kubernetes (Pizza Store Platform)
 
 Person(customer, "Customer")
 
-Deployment_Node(k8s, "Kubernetes cluster", "v1.35+") {
+Deployment_Node(k8s, "Kubernetes cluster", "v1.36+") {
   Deployment_Node(ns, "Namespace: default") {
     Container(lb, "Service: pizza-store", "LoadBalancer 80 -> 8080 (cloud-provider-kind / cloud LB)")
 

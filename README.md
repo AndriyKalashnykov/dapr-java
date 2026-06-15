@@ -406,12 +406,12 @@ GitHub Actions runs on push to `main`, tags `v*`, pull requests, a weekly schedu
 Verify a published multi-arch image's signature locally:
 
 ```bash
-cosign verify ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.2 \
+cosign verify ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.3 \
   --certificate-identity-regexp 'https://github.com/AndriyKalashnykov/dapr-java/.github/workflows/ci.yml@refs/tags/v.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The manifest digest is shared by `linux/amd64` and `linux/arm64` — a single signature covers both. Inspect with `docker buildx imagetools inspect ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.2`.
+The manifest digest is shared by `linux/amd64` and `linux/arm64` — a single signature covers both. Inspect with `docker buildx imagetools inspect ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.3`.
 
 ### Required Secrets and Variables
 
