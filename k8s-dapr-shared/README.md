@@ -16,9 +16,11 @@ The shared-sidecar topology trades isolation (a misbehaving sidecar affects ever
 
 ## Operational status
 
-- **CI coverage**: `make k8s-validate` (kubeconform) parses these manifests on every push, so YAML / schema drift is caught immediately.
-- **E2E coverage**: `make e2e` exercises the **default** `k8s/` topology only. The shared-sidecar topology is **not** asserted end-to-end in CI — wall-clock cost of running both topologies on every push isn't justified for a reference-implementation project.
-- **Manual validation**: use `make k8s-shared-deploy` (defined in the root [`Makefile`](../Makefile)) to deploy this topology against a running KinD cluster created via `make kind-create`. The application URL surfaces via the same `pizza-store` LoadBalancer Service the default topology uses, so the existing `e2e/e2e-test.sh` script works against it too.
+- **CI coverage (parse)**: `make k8s-validate` (kubeconform) parses these manifests on every push, so YAML / schema drift is caught immediately.
+- **CI coverage (runtime)**: the weekly-scheduled `e2e-shared` job (+ `workflow_dispatch`) in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) actually RUNS this topology — `make e2e-shared` brings up KinD, installs a standalone shared daprd per app-id via the [`dapr-shared-chart`](https://github.com/dapr/dapr-shared) Helm chart, deploys these manifests, and runs the full `e2e/e2e-test.sh` suite (fan-out, state round-trip, WebSocket, OTel traces, negatives). It's off the per-PR critical path (a second full KinD e2e) but catches the runtime regressions parse-validation can't.
+- **The standalone shared daprd Deployments are NOT in `apps.yaml`** — they are created at deploy time by `make k8s-shared-deploy`, which `helm install`s `dapr-shared-chart` once per app-id (`pizza-store`, `kitchen-service`, `delivery-service`). The chart's Service is named `<app-id>-dapr`, matching each app's `DAPR_HTTP_ENDPOINT`/`DAPR_GRPC_ENDPOINT`. `apps.yaml` contains only the application Deployments + Services.
+- **Manual validation**: `make image-build && make e2e-shared` (or `make k8s-shared-deploy` against a cluster from `make kind-create`). The application URL surfaces via the same `pizza-store` LoadBalancer Service the default topology uses.
+- **Keep `apps.yaml` in sync with `k8s/`**: it is a parallel manifest set, so changes to the default app Deployments (env vars like the OTLP tracing endpoint, the `/tmp` writable volume, resource requests, probes) must be mirrored here. Drift in any of these silently breaks the topology — five such drifts kept it non-functional until 2026-06-15.
 
 ## When to choose this topology
 

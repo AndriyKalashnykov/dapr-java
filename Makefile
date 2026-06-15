@@ -55,6 +55,12 @@ KIND_NODE_DIGEST := sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014
 KIND_NODE_IMAGE := kindest/node:$(KIND_NODE_VERSION)@$(KIND_NODE_DIGEST)
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
 DAPR_HELM_VERSION := 1.17.7
+# dapr-shared-chart (OCI Helm chart) deploys the standalone shared daprd
+# sidecars used by the alternate k8s-dapr-shared/ topology. Pinned separately
+# from the runtime — the shared daprd image tag is pinned to DAPR_HELM_VERSION
+# (the runtime version) so it matches the installed control plane.
+# renovate: datasource=docker depName=daprio/dapr-shared-chart
+DAPR_SHARED_CHART_VERSION := 0.0.16
 # renovate: datasource=docker depName=plantuml/plantuml
 PLANTUML_VERSION := 1.2026.4
 # renovate: datasource=docker depName=minlag/mermaid-cli
@@ -629,15 +635,56 @@ k8s-shared-deploy: deps-check
 	@$(KUBECTL) apply -f k8s/components-e2e.yaml
 	@$(KUBECTL) apply -f k8s/subscription.yaml
 	@echo "--- Applying shared-sidecar app manifests (with local image overrides) ---"
-	@sed -E "s|image: ghcr.io/andriykalashnykov/dapr-java/(pizza-(store|kitchen|delivery)):[^[:space:]]+|image: \\1:$(E2E_IMAGE_TAG)|g; \
-		s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|" \
+	@# Use '#' as the sed delimiter, NOT '|': the image regex contains a '|'
+	@# alternation (pizza-(store|kitchen|delivery)) that collides with a '|'
+	@# delimiter (`sed: unknown option to 's'`). The single-service kind-deploy
+	@# override can use '|' because it has no alternation; this multi-service
+	@# one (all three apps in one apps.yaml) cannot.
+	@sed -E "s#image: ghcr.io/andriykalashnykov/dapr-java/(pizza-(store|kitchen|delivery)):[^[:space:]]+#image: \\1:$(E2E_IMAGE_TAG)#g; \
+		s#imagePullPolicy: Always#imagePullPolicy: IfNotPresent#" \
 		k8s-dapr-shared/apps.yaml | $(KUBECTL) apply -f -
+	@# Deploy ONE standalone shared daprd per app-id via the dapr-shared-chart
+	@# (OCI Helm). This is what makes the topology actually work: each app's
+	@# DAPR_HTTP_ENDPOINT points at http://<app-id>-dapr:3500, and the chart's
+	@# Service is named `<shared.appId>-dapr` (keyed on app-id, NOT the release
+	@# name), so app-id `pizza-store` yields Service `pizza-store-dapr`, etc.
+	@# remoteURL/remotePort = the app's ClusterIP Service (port 80 -> 8080) so
+	@# the cross-pod daprd can reach the app for subscriptions + invocation.
+	@# daprd image is pinned to the runtime version ($(DAPR_HELM_VERSION)) to
+	@# match the installed control plane (dapr-system); the chart's own default
+	@# is older. Components (pubsub/kvstore) are unscoped, so each shared daprd
+	@# loads them via operator mode automatically.
+	@# Sentry/operator port override: chart 0.0.16 defaults the control-plane
+	@# ports to 80 (Dapr 1.15-era), but Dapr 1.17.7 serves dapr-sentry and the
+	@# dapr-api operator gRPC on 443 (sentry has NO :80 at all, so the daprd's
+	@# mTLS identity bootstrap times out with the chart default). Override both
+	@# to 443 to match the install (verified vs the injector's
+	@# DAPR_SENTRY_ADDRESS=...:443).
+	@echo "--- Installing shared Dapr sidecars (dapr-shared-chart $(DAPR_SHARED_CHART_VERSION), daprd $(DAPR_HELM_VERSION)) per app-id ---"
+	@for appid in pizza-store kitchen-service delivery-service; do \
+		echo "  - $$appid-dapr (app-channel: $$appid.default.svc.cluster.local:80)"; \
+		$(HELM) upgrade --install "$$appid-shared" \
+			oci://registry-1.docker.io/daprio/dapr-shared-chart \
+			--version "$(DAPR_SHARED_CHART_VERSION)" \
+			--namespace default \
+			--set shared.appId="$$appid" \
+			--set shared.remoteURL="$$appid.default.svc.cluster.local" \
+			--set shared.remotePort=80 \
+			--set shared.strategy=deployment \
+			--set shared.daprd.image.tag="$(DAPR_HELM_VERSION)" \
+			--set shared.controlPlane.sentry.port=443 \
+			--set shared.controlPlane.operator.port=443 \
+			--wait --timeout 150s || exit 1; \
+	done
 	@echo "--- Patching pizza-store Service to LoadBalancer ---"
 	@$(KUBECTL) patch svc pizza-store -p '{"spec":{"type":"LoadBalancer"}}' 2>/dev/null || true
 	@echo "Shared-sidecar topology deployed. Validate with e2e/e2e-test.sh against the LoadBalancer IP."
 
 #k8s-shared-undeploy: @ Remove the alternate shared-sidecar topology from the cluster
 k8s-shared-undeploy: deps-check
+	@for appid in pizza-store kitchen-service delivery-service; do \
+		$(HELM) uninstall "$$appid-shared" --namespace default --ignore-not-found 2>/dev/null || true; \
+	done
 	@$(KUBECTL) delete -f k8s-dapr-shared/apps.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/subscription.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/components-e2e.yaml --ignore-not-found 2>/dev/null || true
