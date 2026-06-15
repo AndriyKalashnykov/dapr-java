@@ -37,7 +37,7 @@ C4Context
 | Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.2 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy fs/config/image + gitleaks | Composite `make static-check` gate |
 | Observability | `spring-boot-starter-opentelemetry` 4.0.6 (umbrella starter — bundles `spring-boot-micrometer-tracing-opentelemetry` + `spring-boot-opentelemetry` autoconfig + `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) + OpenTelemetry 1.62.0 SDK + Jaeger all-in-one 1.65.0 for e2e | Spans flow Spring Observation → OTel SDK → OTLP/HTTP → Jaeger collector. The lower-level deps (`micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) ship the runtime but NOT the SB 4.0 autoconfig modules (which live in `spring-boot-micrometer-tracing-opentelemetry`) — use the starter |
-| CVE scan | OWASP dependency-check 12.2.2 (`make cve-check`) | Pre-tag release gate + weekly scheduled run; settings.xml routes `NVD_API_KEY` (no argv leak) |
+| CVE scan | OWASP dependency-check 12.2.2 (`make cve-check`) | Pre-tag release gate + weekly scheduled run; settings.xml routes `NVD_API_KEY` + Sonatype OSS Index (`OSS_INDEX_USER`/`OSS_INDEX_TOKEN`) — two CVE sources, no argv leak |
 | DAST | OWASP ZAP baseline scan ([`zaproxy/action-baseline@v0.15.0`](https://github.com/zaproxy/action-baseline)) | Runs against the LB-exposed `pizza-store` after e2e passes; advisory until baseline stabilizes |
 | Image build | Paketo CNB (`spring-boot:build-image`); multi-arch (amd64+arm64) on native runners | No `Dockerfile` — Paketo composes the OCI layers |
 | Image scan | Trivy `--ignore-unfixed` HIGH/CRITICAL on the built image | Catches Paketo base-layer CVEs invisible to `trivy-fs` and `cve-check` |
@@ -418,6 +418,8 @@ The manifest digest is shared by `linux/amd64` and `linux/arm64` — a single si
 | Name | Type | Used by | How to obtain |
 |------|------|---------|---------------|
 | `NVD_API_KEY` | Secret (optional) | `cve-check` job | Free API key from [NIST NVD](https://nvd.nist.gov/developers/request-an-api-key) — recommended to avoid NVD rate-limiting |
+| `OSS_INDEX_USER` | Secret (optional) | `cve-check` job | Sonatype OSS Index account email — free signup at [ossindex.sonatype.org](https://ossindex.sonatype.org/). Wires OSS Index as a second CVE source alongside NVD; if unset, the OSS Index analyzer is disabled (it requires token auth) |
+| `OSS_INDEX_TOKEN` | Secret (optional) | `cve-check` job | OSS Index API token (paired with `OSS_INDEX_USER`). Routed via `~/.m2/settings.xml` (no argv leak). Note: the free tier can rate-limit (HTTP 401) on large dependency trees |
 
 Set secrets via **Settings > Secrets and variables > Actions > New repository secret**.
 
