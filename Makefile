@@ -318,7 +318,7 @@ check-java-alignment:
 	fi
 
 #static-check: @ Composite quality gate (check-java-alignment + format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate)
-static-check: check-java-alignment format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint k8s-validate
+static-check: check-java-alignment format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint k8s-validate cve-check-selftest
 	@echo "All static checks passed"
 
 #run: @ Run the application
@@ -384,76 +384,24 @@ ci-run: deps
 	done; \
 	rm -f "$$EVENT_PATH"
 
-#cve-check: @ OWASP dependency vulnerability scan
+#cve-check: @ OWASP dependency vulnerability scan (NVD + OSS Index) with self-healing fallbacks
 cve-check: deps-check
-	@# Route the NVD API key through ~/.m2/settings.xml + -DnvdApiServerId=nvd
-	@# instead of -DnvdApiKey=$$VAR. The flag form would expand $$NVD_API_KEY
-	@# into mvn's argv at exec time and leak the value via `ps -ef` /
-	@# `/proc/<pid>/cmdline` for the entire ~30-min plugin lifetime
-	@# (settings.xml stays on disk with mode 0600). printf is a bash builtin —
-	@# the value never lands in argv.
-	@# Use fully-qualified `groupId:artifactId:goal` form (NOT the short
-	@# `dependency-check:check` prefix). The short form requires Maven to
-	@# resolve the prefix by GETting `<group>/maven-metadata.xml` from
-	@# Central for every registered plugin group; a transient HTTP 403
-	@# from Central's CI-egress throttle on any of those metadata calls
-	@# fails the build with `NoPluginFoundForPrefixException` (root cause
-	@# of run 26389218249 on 2026-05-25). The g:a:goal form bypasses
-	@# prefix resolution entirely; the version is inherited from parent
-	@# pom.xml pluginManagement (12.2.2). Same pattern applied to every
-	@# other plugin invocation in this Makefile — see deps-prune,
-	@# coverage-check, print-deps-updates, update-deps, image-build.
-	@# Sonatype OSS Index is wired here as a second source alongside NVD, via
-	@# OSS_INDEX_USER (account email) + OSS_INDEX_TOKEN routed through the same
-	@# settings.xml <server id="ossindex"> block (printf builtin, umask 077 — the
-	@# token never lands in argv; -DossIndexUser=$$VAR / -DossIndexPassword=$$VAR
-	@# flag forms would leak via `ps -ef` / `/proc/<pid>/cmdline`). When the OSS
-	@# Index creds are absent the analyzer is DISABLED (it now mandates token
-	@# auth and cannot run anonymously) rather than silently degrading.
-	@# CAVEAT: OSS Index's free tier rate-limits large dependency trees — a
-	@# Spring Boot multi-module app expands to 170+ component-report batches and
-	@# can trip the limit, which Sonatype returns as HTTP 401 (mis-classified as
-	@# bad-auth) and which -DossIndexAnalyzerWarnOnlyOnRemoteErrors does NOT
-	@# catch. If cve-check starts failing on OSS Index 401s, slim the tree, move
-	@# to a paid tier, or set -DossindexAnalyzerEnabled=false with a rationale.
-	@# Self-heal a corrupt NVD H2 cache. actions/cache tars odc.mv.db; if a
-	@# prior NVD update was interrupted (cancelled/timeout) or the file was
-	@# archived before H2 flushed, the cached .mv.db is TRUNCATED and every
-	@# subsequent run restore-keys re-hydrates the poison, hard-failing with
-	@# `MVStoreException: ... length -1` -> `connectionPool ... is null` NPE
-	@# cascade -> Maven exit 2 (root cause of scheduled run 27938409200,
-	@# 2026-06-22). dependency-check does NOT auto-recover; `purge` (delete the
-	@# H2 data dir) then a fresh download is the documented recovery
-	@# (purge-mojo.html, dependency-check/DependencyCheck#6115). The mvn block
-	@# below is ONE backslash-continued shell line (NO @# comments inside it —
-	@# they splice into the continuation and break it): on the corruption
-	@# signature it purges + re-runs ONCE; a REAL CVE finding still fails fast
-	@# (failOnError=false would wrongly swallow real findings too). pipefail so
-	@# the gate reads mvn's rc, not tee's (SHELL := /bin/bash).
-	@mkdir -p $$HOME/.m2; \
-	SERVERS=""; NVD_FLAG=""; OSS_FLAG="-DossindexAnalyzerEnabled=false"; \
-	if [ -n "$$NVD_API_KEY" ]; then \
-		SERVERS="$$SERVERS<server><id>nvd</id><password>$$NVD_API_KEY</password></server>"; \
-		NVD_FLAG="-DnvdApiServerId=nvd"; \
-	fi; \
-	if [ -n "$$OSS_INDEX_USER" ] && [ -n "$$OSS_INDEX_TOKEN" ]; then \
-		SERVERS="$$SERVERS<server><id>ossindex</id><username>$$OSS_INDEX_USER</username><password>$$OSS_INDEX_TOKEN</password></server>"; \
-		OSS_FLAG="-DossIndexServerId=ossindex"; \
-	fi; \
-	( umask 077 && printf '<settings><servers>%s</servers></settings>\n' "$$SERVERS" > $$HOME/.m2/settings.xml ); \
-	set -o pipefail; LOG=$$(mktemp); \
-	if mvn -B org.owasp:dependency-check-maven:check $$NVD_FLAG $$OSS_FLAG 2>&1 | tee "$$LOG"; then \
-		rm -f "$$LOG"; \
-	elif grep -qiE 'MVStoreException|connectionPool.*is null|NoDataException|Failed to (update|process) CVE' "$$LOG"; then \
-		rm -f "$$LOG"; \
-		echo "==> Corrupt OWASP NVD H2 cache detected — purging dependency-check-data and re-running with a fresh download..."; \
-		mvn -B org.owasp:dependency-check-maven:purge || true; \
-		mvn -B org.owasp:dependency-check-maven:check $$NVD_FLAG $$OSS_FLAG; \
-	else \
-		rm -f "$$LOG"; \
-		echo "==> cve-check failed for a non-cache reason (likely a real finding) — see output above."; \
-		exit 1; \
-	fi
+	@# Logic lives in scripts/cve-check.sh (one shellcheckable/self-testable
+	@# place, instead of a fragile backslash-continued Makefile recipe). It:
+	@#   - routes NVD_API_KEY / OSS_INDEX_* via ~/.m2/settings.xml server-ids
+	@#     (printf builtin, umask 077) so secrets never enter argv;
+	@#   - uses the fully-qualified org.owasp:dependency-check-maven:check goal
+	@#     (avoids Central prefix-resolution 403s; version from pluginManagement);
+	@#   - real CVE finding -> FAIL; corrupt H2 cache -> purge + re-download;
+	@#     transient NVD 503 + cached DB -> -DautoUpdate=false (warn, green);
+	@#     503 with no cached DB / anything else -> FAIL.
+	@# Classifier regexes are mutation-proven by `make cve-check-selftest`.
+	@NVD_API_KEY="$$NVD_API_KEY" OSS_INDEX_USER="$$OSS_INDEX_USER" OSS_INDEX_TOKEN="$$OSS_INDEX_TOKEN" \
+		bash scripts/cve-check.sh
+
+#cve-check-selftest: @ Mutation-prove the cve-check log classifiers (no network)
+cve-check-selftest:
+	@bash scripts/cve-check.sh --self-test
 
 #coverage-generate: @ Generate merged unit + integration coverage report
 coverage-generate: deps-check
@@ -801,7 +749,7 @@ release: pre-release
 .PHONY: help deps deps-check deps-maven deps-gjf \
 	env-check clean build test integration-test lint format format-check \
 	trivy-fs trivy-config secrets deps-prune deps-prune-check check-java-alignment static-check run \
-	ci ci-run cve-check coverage-generate coverage-check coverage-open \
+	ci ci-run cve-check cve-check-selftest coverage-generate coverage-check coverage-open \
 	print-deps-updates update-deps renovate-validate \
 	image-build image-scan image-test kind-create kind-deploy kind-undeploy kind-destroy \
 	kind-up kind-down e2e e2e-shared pre-release release \
