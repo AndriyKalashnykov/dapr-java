@@ -416,6 +416,20 @@ cve-check: deps-check
 	@# bad-auth) and which -DossIndexAnalyzerWarnOnlyOnRemoteErrors does NOT
 	@# catch. If cve-check starts failing on OSS Index 401s, slim the tree, move
 	@# to a paid tier, or set -DossindexAnalyzerEnabled=false with a rationale.
+	@# Self-heal a corrupt NVD H2 cache. actions/cache tars odc.mv.db; if a
+	@# prior NVD update was interrupted (cancelled/timeout) or the file was
+	@# archived before H2 flushed, the cached .mv.db is TRUNCATED and every
+	@# subsequent run restore-keys re-hydrates the poison, hard-failing with
+	@# `MVStoreException: ... length -1` -> `connectionPool ... is null` NPE
+	@# cascade -> Maven exit 2 (root cause of scheduled run 27938409200,
+	@# 2026-06-22). dependency-check does NOT auto-recover; `purge` (delete the
+	@# H2 data dir) then a fresh download is the documented recovery
+	@# (purge-mojo.html, dependency-check/DependencyCheck#6115). The mvn block
+	@# below is ONE backslash-continued shell line (NO @# comments inside it —
+	@# they splice into the continuation and break it): on the corruption
+	@# signature it purges + re-runs ONCE; a REAL CVE finding still fails fast
+	@# (failOnError=false would wrongly swallow real findings too). pipefail so
+	@# the gate reads mvn's rc, not tee's (SHELL := /bin/bash).
 	@mkdir -p $$HOME/.m2; \
 	SERVERS=""; NVD_FLAG=""; OSS_FLAG="-DossindexAnalyzerEnabled=false"; \
 	if [ -n "$$NVD_API_KEY" ]; then \
@@ -427,18 +441,6 @@ cve-check: deps-check
 		OSS_FLAG="-DossIndexServerId=ossindex"; \
 	fi; \
 	( umask 077 && printf '<settings><servers>%s</servers></settings>\n' "$$SERVERS" > $$HOME/.m2/settings.xml ); \
-	@# Self-heal a corrupt NVD H2 cache. actions/cache tars odc.mv.db; if a
-	@# prior NVD update was interrupted (cancelled/timeout) or the file was
-	@# archived before H2 flushed, the cached .mv.db is TRUNCATED and every
-	@# subsequent run restore-keys re-hydrates the poison, hard-failing with
-	@# `MVStoreException: ... length -1` → `connectionPool ... is null` NPE
-	@# cascade → Maven exit 2 (root cause of scheduled run 27938409200,
-	@# 2026-06-22). dependency-check does NOT auto-recover; `purge` (delete the
-	@# H2 data dir) then a fresh download is the documented recovery
-	@# (purge-mojo.html, dependency-check/DependencyCheck#6115). Bounded to ONE
-	@# retry, and gated on the corruption signature so a REAL CVE finding still
-	@# fails fast (failOnError=false would wrongly swallow real findings too).
-	@# pipefail so the gate reads mvn's rc, not tee's (SHELL := /bin/bash).
 	set -o pipefail; LOG=$$(mktemp); \
 	if mvn -B org.owasp:dependency-check-maven:check $$NVD_FLAG $$OSS_FLAG 2>&1 | tee "$$LOG"; then \
 		rm -f "$$LOG"; \
