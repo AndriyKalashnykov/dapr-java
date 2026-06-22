@@ -305,8 +305,14 @@ jobs:
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
         path: ~/.m2/repository/org/owasp/dependency-check-data
-        key: nvd-db-${{ steps.nvdweek.outputs.week }}
-        restore-keys: nvd-db-
+        # v2 prefix orphans the poisoned pre-2026-06-22 nvd-db-* tarballs: a
+        # truncated odc.mv.db (interrupted NVD update tarred mid-write) was
+        # propagating via restore-keys and hard-failing cve-check with an H2
+        # MVStoreException (run 27938409200). Bump the prefix to invalidate a
+        # poisoned cache; the Makefile cve-check purge-retry self-heals any
+        # future corruption within the run.
+        key: nvd-db-v2-${{ steps.nvdweek.outputs.week }}
+        restore-keys: nvd-db-v2-
 
     # dependency-check 12.2.2 (2026-05-03) ships the upstream fix for the
     # NVD 9-digit nanosecond timestamp deserializer bug (PR #8427), so this
