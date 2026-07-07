@@ -28,6 +28,18 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)(?:\\s+packageName=(?<packageName>\\S+))?(?:\\s+versioning=(?<versioning>[a-z-]+))?(?:\\s+extractVersion=(?<extractVersion>\\S+))?(?:\\s+registryUrl=(?<registryUrl>\\S+))?\\s*\\n[A-Z0-9_]+\\s*[?:]?=\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "kindest/node image (tag + digest). The generic Makefile manager above captures only a single-line VAR := value (the tag), which would leave KIND_NODE_DIGEST frozen while the pinned KIND_NODE_IMAGE resolves by digest — a silent no-op on kindest/node bumps. This manager captures BOTH currentValue (tag) and currentDigest across the two lines so Renovate keeps the @sha256 pin in sync with the tag. Do NOT add a `# renovate:` comment above KIND_NODE_VERSION in the Makefile, or the generic manager reclaims it (tag-only).",
+      "managerFilePatterns": [
+        "/(^|/)Makefile$/"
+      ],
+      "matchStrings": [
+        "KIND_NODE_VERSION\\s*:?=\\s*(?<currentValue>\\S+)[\\s\\S]*?KIND_NODE_DIGEST\\s*:?=\\s*(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "depNameTemplate": "kindest/node",
+      "datasourceTemplate": "docker"
     }
   ],
   "commitMessagePrefix": "chore(all): ",

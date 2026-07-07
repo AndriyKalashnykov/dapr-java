@@ -22,7 +22,7 @@ System_Boundary(pizza, "Pizza Store Platform") {
   ' each Rel label below ("PubSub: …" / "State: …"). Keeps the Container
   ' view at <= 15 elements per the C4 soft cap; per-backend deployment
   ' detail (Kafka vs Redis, PostgreSQL vs Redis) lives in c4-deployment.
-  ContainerDb(daprComponents, "Dapr Components", "kvstore (state) + pubsub (topic)", "PubSub (CloudEvents) + State Store — Kafka/PostgreSQL (managed) / Redis (e2e)")
+  ContainerDb(daprComponents, "Dapr Components", "kvstore (state) + pubsub (topic)", "PubSub (CloudEvents) + State Store — Kafka/PostgreSQL (managed) / Redis (e2e)", $tags="datastore")
 }
 
 ' Customer↔Store is bidirectional: HTTPS/JSON in, STOMP WebSocket

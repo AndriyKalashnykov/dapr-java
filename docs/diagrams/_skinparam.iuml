@@ -19,8 +19,16 @@ skinparam wrapWidth 160
 
 UpdateElementStyle("person",        $fontColor="#FFFFFF", $bgColor="#0F766E", $borderColor="#134E4A")
 UpdateElementStyle("container",     $fontColor="#FFFFFF", $bgColor="#2563EB", $borderColor="#1E3A8A")
-UpdateElementStyle("container_db",  $fontColor="#FFFFFF", $bgColor="#7C3AED", $borderColor="#4C1D95")
-UpdateElementStyle("container_queue",$fontColor="#FFFFFF", $bgColor="#DB2777", $borderColor="#831843")
 UpdateElementStyle("system",        $fontColor="#FFFFFF", $bgColor="#2563EB", $borderColor="#1E3A8A")
-UpdateElementStyle("system_ext",    $fontColor="#FFFFFF", $bgColor="#64748B", $borderColor="#334155")
 UpdateBoundaryStyle($bgColor="#F1F5F9", $borderColor="#94A3B8", $fontColor="#1E293B")
+
+' ContainerDb()/ContainerQueue() render the plain `container` style tag — there is
+' NO distinct container_db/container_queue tag in C4-PlantUML v2.13.0, so
+' UpdateElementStyle("container_db"/"container_queue", …) silently no-ops (verified
+' by pixel-sampling: the DB box rendered indigo, not violet). Define the
+' datastore/queue colours as explicit tags and attach them via $tags= at each
+' ContainerDb()/ContainerQueue() call site instead. System_Ext is unused in every
+' diagram, so no external style is defined (it would be `external_system`, not
+' `system_ext`, if ever added — grey is C4's conventional external colour).
+AddElementTag("datastore", $fontColor="#FFFFFF", $bgColor="#7C3AED", $borderColor="#4C1D95")
+AddElementTag("queue",     $fontColor="#FFFFFF", $bgColor="#DB2777", $borderColor="#831843")

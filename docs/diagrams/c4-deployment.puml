@@ -19,8 +19,8 @@ Deployment_Node(k8s, "Kubernetes cluster", "v1.36+") {
     Container(kitchenPod, "Pod: pizza-kitchen + Dapr sidecar", "Spring Boot 4.0.7, Java 21 (app-id: kitchen-service)")
     Container(deliveryPod, "Pod: pizza-delivery + Dapr sidecar", "Spring Boot 4.0.7, Java 21 (app-id: delivery-service)")
 
-    ContainerQueue(pubsub, "PubSub backend", "Kafka (managed) / Redis (e2e)")
-    ContainerDb(state, "State Store backend", "PostgreSQL (managed) / Redis (e2e)")
+    ContainerQueue(pubsub, "PubSub backend", "Kafka (managed) / Redis (e2e)", $tags="queue")
+    ContainerDb(state, "State Store backend", "PostgreSQL (managed) / Redis (e2e)", $tags="datastore")
   }
 
   Deployment_Node(daprSys, "Namespace: dapr-system") {

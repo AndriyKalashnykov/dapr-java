@@ -90,14 +90,21 @@ MAVEN_VERSION := $(shell awk -F'"' '/^maven *= *"/ {print $$2; exit}' .mise.toml
 GJF_VERSION := 1.35.0
 # renovate: datasource=docker depName=registry.k8s.io/cloud-provider-kind/cloud-controller-manager
 CLOUD_PROVIDER_KIND_VERSION := 0.10.0
-# renovate: datasource=docker depName=kindest/node
+# KIND_NODE_VERSION + KIND_NODE_DIGEST are managed together by the dedicated
+# "kindest/node image (tag + digest)" custom manager in renovate.json (its
+# matchString captures BOTH currentValue and currentDigest across these lines).
+# Do NOT add a `# renovate:` comment above KIND_NODE_VERSION — the generic
+# single-line Makefile manager would then capture the tag ONLY and leave the
+# digest frozen. This is the v1.36.1 node image built for KinD v0.32.0 (kind
+# 0.32.0 in .mise.toml) — KinD requires the @sha256 digest matched to its release.
 KIND_NODE_VERSION := v1.36.1
-# Digest pin for KIND_NODE_VERSION above (kindest/node@sha256:...). Renovate's
-# `docker:pinDigests` preset keeps this in sync with the tag via its own update.
-# This is the v1.36.1 node image built for KinD v0.32.0 (kind 0.32.0 in
-# .mise.toml) — KinD requires the @sha256 digest matched to its own release.
 KIND_NODE_DIGEST := sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
 KIND_NODE_IMAGE := kindest/node:$(KIND_NODE_VERSION)@$(KIND_NODE_DIGEST)
+# act runner image for `make ci-run` — pin the catthehacker tag (ubuntu-latest
+# GitHub runner is 24.04) so local CI is reproducible instead of floating on
+# the `act-latest` default. Tracked by the generic Makefile custom manager.
+# renovate: datasource=docker depName=catthehacker/ubuntu versioning=loose
+ACT_UBUNTU_TAG := act-24.04
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts/
 DAPR_HELM_VERSION := 1.17.7
 # dapr-shared-chart (OCI Helm chart) deploys the standalone shared daprd
@@ -362,7 +369,7 @@ check-java-alignment:
 		exit 1; \
 	fi
 
-#static-check: @ Composite quality gate (check-java-alignment + format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate)
+#static-check: @ Composite quality gate (check-java-alignment + check-env + format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate + cve-check-selftest)
 static-check: check-java-alignment check-env format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint k8s-validate cve-check-selftest
 	@echo "All static checks passed"
 
@@ -449,6 +456,7 @@ ci-run: deps
 		echo "  act push --job $$j"; \
 		echo "============================================================"; \
 		act push --job $$j --container-architecture linux/amd64 \
+			-P ubuntu-latest=catthehacker/ubuntu:$(ACT_UBUNTU_TAG) \
 			--eventpath "$$EVENT_PATH" \
 			--artifact-server-port "$$ACT_PORT" \
 			--artifact-server-path "$$ARTIFACT_PATH" || exit 1; \
