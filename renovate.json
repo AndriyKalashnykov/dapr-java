@@ -215,6 +215,26 @@
         "docker"
       ],
       "pinDigests": false
+    },
+    {
+      "description": "kindest/node is digest-pinned (KIND_NODE_DIGEST) and its tags are immutable, so docker:pinDigests never has a legitimate digest to refresh — but it still generates a `digest` updateType that collides with the version bump in the grouped 'KinD stack' branch and silently drops it. `pinDigests: false` above covers only the `pinDigest` (pin-where-absent) updateType, NOT `digest` (refresh), so it does not stop this. Disable the standalone digest-refresh for kindest/node; a real version bump carries its own fresh digest via the customManager's currentDigest capture. See /renovate skill dapr-go-poly 2026-06-14.",
+      "matchPackageNames": [
+        "kindest/node"
+      ],
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "3-day stability buffer for aqua:-backend mise tools (websocat, container-structure-test). The mise manager resolves aqua: pins via the github-tags datasource, which sees a new git tag before the upstream GitHub Release artifacts that `mise install` downloads are published — a bump to a just-tagged-but-not-released version 404s in `mise install` and reddens deps/static-check. The buffer defers the PR until the release publishes. Scoped to github-tags so it does not touch kind/kubectl (core backend) or the Java pin.",
+      "matchManagers": [
+        "mise"
+      ],
+      "matchDatasources": [
+        "github-tags"
+      ],
+      "minimumReleaseAge": "3 days"
     }
   ]
 }
