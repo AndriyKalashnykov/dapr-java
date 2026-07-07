@@ -23,7 +23,9 @@ make secrets                            # Scan for leaked secrets (gitleaks)
 make deps-prune                         # Analyze Maven dependencies (advisory)
 make deps-prune-check                   # Fail if unused declared Maven dependencies exist
 make check-java-alignment               # Fail-fast precheck: Java major matches across .mise.toml, .java-version, pom.xml (java.version + maven.compiler.{source,target})
-make static-check                       # Composite: check-java-alignment + format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate
+make check-env                          # STOPPER gate: fail if the committed .env.example source-of-truth is missing (wired into static-check)
+make check-ports                        # Fail early naming the holder if a fixed host port in $(CHECK_PORTS) is bound (used by run + e2e)
+make static-check                       # Composite: check-java-alignment + check-env + format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate
 make k8s-validate                       # Validate k8s/ + k8s-dapr-shared/ manifests via kubeconform (vendored OpenAPI, no cluster)
 make diagrams                           # Render docs/diagrams/*.puml → docs/diagrams/out/*.png (PlantUML in Docker)
 make diagrams-clean                     # Remove rendered PNGs
@@ -144,6 +146,12 @@ Managed centrally in the parent `pom.xml` `<properties>` block. The Dapr SDK ver
 ## Key Config
 
 Permanent design rules and operational constraints. Each one is load-bearing — read before changing the related target / manifest.
+
+### Environment configuration (.env.example + port guards)
+
+- **`.env.example`** (repo root, committed) is the source of truth for every operator-tunable value (`SERVER_PORT`, `DAPR_HTTP_PORT`/`DAPR_GRPC_PORT`, `JAEGER_QUERY_HOST`/`JAEGER_QUERY_PORT`, `GATEWAY_PORT`, the OTLP endpoint). `.env` (gitignored; `!.env.example` negation in `.gitignore` keeps the example tracked) overrides it. The Makefile `-include .env` before its `?=` port block, so `.env` is authoritative for `make` too — not just compose/app. YAML-coupled Dapr identifiers (`PUB_SUB_NAME`/`STATE_STORE_NAME`/topic/`DAPR_HTTP_ENDPOINT`) are intentionally NOT in `.env.example` — they must match the component/manifest YAML (excluded category per `rules/common/configuration.md`).
+- **`make check-env`** is a STOPPER gate wired into `static-check` — it fails RED if `.env.example` is ever deleted, so the requirement can't silently regress. Proven RED (exit 2 when the file is absent).
+- **`make check-ports`** guards the two fixed host-port binds (`make run` → `SERVER_PORT`; `make e2e` → `JAEGER_QUERY_PORT`), probing via bash `/dev/tcp` and naming the docker/podman container (or non-container process) holding the port before the bind fails cryptically. Each flow passes its own `CHECK_PORTS` set. Unit/integration tests use ephemeral ports (`TestSocketUtils.findAvailableTcpPort()`) and the act runner uses a random artifact port — those are already parallel-safe, so they need no `check-ports` guard.
 
 ### Release workflow
 

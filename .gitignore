@@ -26,6 +26,8 @@ Thumbs.db
 # Environment / secrets
 .env
 .env.*
+# ...but keep the committed source-of-truth example (see rules/common/configuration.md)
+!.env.example
 
 # mermaid-lint scratch outputs
 docs/diagrams/out/.mermaid-lint-*.png

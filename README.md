@@ -55,6 +55,7 @@ C4Context
 The fastest path from a clean checkout to a working three-service stack with Dapr + Redis + Jaeger:
 
 ```bash
+cp .env.example .env   # optional — override tunable ports (SERVER_PORT, JAEGER_QUERY_PORT, …); defaults work as-is
 make deps          # install build dependencies via mise (reads .mise.toml)
 make kind-up       # create KinD cluster, install Dapr via Helm, deploy services + Redis + Jaeger
 make e2e           # run e2e/e2e-test.sh against the LoadBalancer IP
@@ -62,6 +63,8 @@ make kind-down     # tear everything down
 ```
 
 `make kind-up` chains `kind-create` + `image-build` + `kind-deploy` (~3-5 min on a warm cache). See [Kubernetes Deployment](#kubernetes-deployment) for granular targets.
+
+Every operator-tunable value (ports, the OTLP endpoint) is documented in the committed [`.env.example`](.env.example) with its default. `.env` (gitignored) overrides them; `make` also reads `.env` via `-include`. Fixed host-port binds (`make run` → `SERVER_PORT`, `make e2e` → `JAEGER_QUERY_PORT`) are guarded by `make check-ports`, which fails early and names the process holding a bound port.
 
 ### Single-service development loop
 
