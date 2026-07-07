@@ -419,6 +419,24 @@ jobs:
     - name: Structure test
       run: make image-test SERVICES='${{ matrix.service }}'
 
+    # Tag-only: hand the *scanned* image to the `docker` publish job so it
+    # doesn't rebuild it. `docker save | gzip` persists the exact image this
+    # job built + Trivy-scanned + smoke- + structure-tested; the artifact is
+    # loaded and pushed by `docker` AFTER the full validation chain is green
+    # (build/test/integration-test/cve-check/e2e). No early registry push, so
+    # a later gate failure leaves no orphaned tag. Skipped on PR/main pushes.
+    - name: Save scanned image for publish
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: docker save '${{ matrix.service }}:e2e' | gzip > '/tmp/${{ matrix.service }}-image.tar.gz'
+
+    - name: Upload scanned image artifact
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: image-${{ matrix.service }}
+        path: /tmp/${{ matrix.service }}-image.tar.gz
+        retention-days: 1
+
   # MANDATORY end-to-end test job. Deploys the three services plus Dapr to
   # a KinD cluster (cloud-provider-kind LB + redis-backed pubsub/state) and
   # runs e2e/e2e-test.sh through the LoadBalancer-exposed pizza-store.
@@ -598,21 +616,21 @@ jobs:
 
   # First-party OCI image publish with pre-push hardening gates. Triggers
   # only on v* tag pushes and only after every validation job is green.
-  # Per /harden-image-pipeline canonical pattern (Pattern A — Phase 1+2):
-  #   GATE 1: Trivy image scan (CRITICAL/HIGH blocking, fixed-only).
-  #   GATE 2: Spring Boot boot-marker smoke test (catches boot regressions
-  #           Trivy can't see — missing classes, port binds, config errors).
-  #   GATE 3: push to GHCR with a `:<version>-amd64` staging tag.
-  # The downstream `docker-manifest` job then promotes it to `:<version>` +
+  # This job does NOT rebuild the image — it reuses the exact image the
+  # `image-scan` job already built + Trivy-scanned + smoke- + structure-
+  # tested (handed over as a gzip'd `docker save` artifact). It only
+  # `docker load`s + pushes the `:<version>-amd64` staging tag. Publishing
+  # still gates on the full validation chain via `needs:` (build/test/
+  # integration-test/cve-check/e2e), and `needs: image-scan` guarantees the
+  # scan gate passed and the artifact exists. The downstream
+  # `docker-manifest` job then promotes the staging tag to `:<version>` +
   # `:latest` and cosign-signs the image digest.
   #
   # amd64-only: spring-boot:build-image (Paketo CNB) builds the host arch
   # with no cross-build support, and arm64 publishing was intentionally
-  # dropped. provenance: false / sbom: false applies to the Paketo CNB
-  # build path (no buildkit attestations emitted) so the GHCR Packages
-  # "OS / Arch" tab renders correctly.
+  # dropped.
   docker:
-    needs: [static-check, build, test, integration-test, cve-check, e2e]
+    needs: [static-check, build, test, integration-test, cve-check, e2e, image-scan]
     # Explicit `if:` strips GitHub's implicit success() check — must
     # re-assert !failure() && !cancelled() so a failed needs-chain on a
     # tag push blocks the publish path. Block form because single-line
@@ -620,41 +638,19 @@ jobs:
     if: |
       !failure() && !cancelled() && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false      # one bad service shouldn't cancel the others'
-                            # in-flight scans — collect all results
+                            # in-flight pushes — collect all results
       matrix:
         service: [pizza-store, pizza-kitchen, pizza-delivery]
     env:
       REGISTRY: ghcr.io
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-    # Java + Maven are provisioned by jdx/mise-action from .mise.toml (single
-    # source of truth; alignment with .java-version + pom.xml is enforced by
-    # `make check-java-alignment`). A dedicated ~/.m2 cache replaces the maven
-    # cache that actions/setup-java used to provide.
-    - name: Cache Maven packages
-      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
-      with:
-        path: ~/.m2/repository
-        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-        restore-keys: ${{ runner.os }}-maven-
-
-    # mise provides Maven + trivy (pinned in .mise.toml) for the image
-    # scan gate.
-    - name: Install mise
-      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-      with:
-        install: true
-        cache: true
-
     - name: Compute version tag
       id: ver
       run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
@@ -663,52 +659,22 @@ jobs:
       id: ns
       # OCI registries require lowercase image names. GitHub Actions has no
       # built-in expression to case-convert ${{ github.repository_owner }},
-      # so we lowercase via shell. docker/metadata-action also takes its
-      # `images:` value literally — it would not remove this step.
+      # so we lowercase via shell.
       run: |
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
         REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
         echo "owner=${OWNER}" >> "$GITHUB_OUTPUT"
         echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
 
-    # GATE 1+2: Build + Trivy image scan via existing make target.
-    # SERVICES override scopes the loop to this matrix entry only — each
-    # service builds + scans on its own runner in parallel. The matrix
-    # coordinate ($SVC) renders in the GitHub UI as `docker (pizza-store)
-    # / Build and scan image`, so the step name itself stays static.
-    - name: Build and scan image
-      run: make image-scan SERVICES='${{ matrix.service }}'
-
-    # GATE 3 of the publish flow: Spring Boot boot-marker smoke test.
-    # Validates the image actually boots Spring Boot before publishing —
-    # catches regressions Trivy and filesystem scans miss (missing classes,
-    # port bind failures, broken auto-config). Pizza services depend on
-    # Dapr sidecars + state store at runtime, so the readiness probe would
-    # fail without them; the boot-marker fires BEFORE any external-dep
-    # check, which is exactly what we want here.
-    - name: Smoke test
-      run: |
-        set -euo pipefail
-        SVC='${{ matrix.service }}'
-        docker run -d --name="${SVC}-smoke" "${SVC}:e2e"
-        echo "Waiting up to 90s for Spring Boot to boot..."
-        end=$((SECONDS + 90))
-        while [ $SECONDS -lt $end ]; do
-          if docker logs "${SVC}-smoke" 2>&1 | grep -qE 'Started [A-Z][a-zA-Z]+Application in|Tomcat started on port|Netty started on port'; then
-            echo "PASS: ${SVC} container booted Spring Boot successfully"
-            docker rm -f "${SVC}-smoke" >/dev/null
-            exit 0
-          fi
-          sleep 3
-        done
-        echo "FAIL: ${SVC} did not reach Spring Boot start within 90s"
-        docker logs "${SVC}-smoke"
-        docker rm -f "${SVC}-smoke" >/dev/null || true
-        exit 1
-
-    - name: Cleanup smoke container
-      if: always()
-      run: docker rm -f '${{ matrix.service }}-smoke' 2>/dev/null || true
+    # Reuse the scanned image from `image-scan` (this service's artifact) —
+    # no Paketo rebuild, no re-scan. `docker load` restores it as `<svc>:e2e`.
+    - name: Download scanned image
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      with:
+        name: image-${{ matrix.service }}
+        path: /tmp
+    - name: Load scanned image
+      run: docker load < '/tmp/${{ matrix.service }}-image.tar.gz'
 
     - name: Log in to GHCR
       uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
