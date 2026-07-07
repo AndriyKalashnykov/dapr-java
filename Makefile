@@ -15,6 +15,51 @@ export PATH := $(HOME)/.local/share/mise/shims:$(HOME)/.local/bin:$(PATH)
 APP_NAME   ?= $(notdir $(CURDIR))
 CURRENTTAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
+# Load operator overrides from .env (gitignored) BEFORE the `?=` defaults below,
+# so `.env` is authoritative for `make` too — not just for the app/e2e. `-include`
+# (leading `-`) silently skips a missing .env; the `?=` defaults then apply.
+# Source of truth for every tunable is the committed .env.example.
+-include .env
+
+# --- Operator-tunable ports (mirror .env.example; `?=` lets .env / the env / the
+#     CLI override). Fixed host binds are guarded by `make check-ports`.
+#     NB: comments are on their own line — an inline `# ...` after `?= value`
+#     would become part of the value as trailing whitespace (Makefile trap H4).
+# Spring Boot HTTP port bound by `make run`
+SERVER_PORT       ?= 8080
+# sidecar HTTP / gRPC (documented defaults; tests allocate ephemeral ports)
+DAPR_HTTP_PORT    ?= 3500
+DAPR_GRPC_PORT    ?= 50001
+# e2e Jaeger query-API port-forward host + port
+JAEGER_QUERY_HOST ?= 127.0.0.1
+JAEGER_QUERY_PORT ?= 16686
+# e2e LoadBalancer port
+GATEWAY_PORT      ?= 80
+
+# --- Operator-tunable timeouts / poll cadences (mirror .env.example; comments
+#     on their OWN line — inline `# ...` after `?= value` leaks into the value
+#     as trailing whitespace, Makefile trap H4). ---
+# Dapr Helm install wait (kind-create)
+DAPR_HELM_TIMEOUT   ?= 5m
+# redis / jaeger rollout wait
+ROLLOUT_TIMEOUT     ?= 120s
+# pizza-* app deployment rollout wait
+APP_ROLLOUT_TIMEOUT ?= 600s
+# standalone shared-daprd Helm wait (k8s-shared-deploy)
+SHARED_DAPR_TIMEOUT ?= 150s
+# LoadBalancer-IP wait loop (kind-deploy): attempts x interval seconds
+LB_WAIT_ATTEMPTS    ?= 60
+LB_WAIT_INTERVAL    ?= 2
+
+# Port sets probed by `check-ports` per flow (see the target below).
+RUN_PORTS   := $(SERVER_PORT)
+E2E_PORTS   := $(JAEGER_QUERY_PORT)
+# Default probes EVERY fixed host bind, so a bare `make check-ports` is
+# meaningful. Each flow overrides CHECK_PORTS to just the subset IT binds
+# (run -> RUN_PORTS, e2e -> E2E_PORTS) so it can't false-positive on its own
+# already-running bind.
+CHECK_PORTS ?= $(RUN_PORTS) $(E2E_PORTS)
+
 # === Tool Versions (pinned) ===
 # Single source of truth: .mise.toml. Tools managed by mise (java, maven,
 # node, act, trivy, gitleaks, kind, kubectl, helm) are NOT pinned again here
@@ -318,12 +363,38 @@ check-java-alignment:
 	fi
 
 #static-check: @ Composite quality gate (check-java-alignment + format-check + lint + trivy-fs + trivy-config + secrets + diagrams-check + mermaid-lint + k8s-validate)
-static-check: check-java-alignment format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint k8s-validate cve-check-selftest
+static-check: check-java-alignment check-env format-check lint trivy-fs trivy-config secrets diagrams-check mermaid-lint k8s-validate cve-check-selftest
 	@echo "All static checks passed"
 
-#run: @ Run the application
+#check-env: @ STOPPER gate — fail if the committed .env.example source-of-truth is missing
+check-env:
+	@test -f .env.example || { \
+		echo "ERROR: .env.example is missing (BLOCKING per rules/common/configuration.md)."; \
+		echo "       It is the committed source of truth for every operator-tunable value;"; \
+		echo "       recreate it and re-run. See the Makefile '?=' port block for the tunables."; \
+		exit 1; }
+	@echo "check-env: .env.example present."
+
+#check-ports: @ Fail early (naming the holder) if a fixed host port in $(CHECK_PORTS) is already bound
+check-ports:
+	@set -uo pipefail; conflict=0; \
+	for p in $(CHECK_PORTS); do \
+		if (exec 3<>/dev/tcp/127.0.0.1/$$p) 2>/dev/null; then \
+			exec 3>&- 2>/dev/null || true; \
+			holder=$$( { docker ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null; \
+			             podman ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null; } \
+			           | grep -E ":$$p->" | cut -d'|' -f1 | paste -sd, - ); \
+			[ -n "$$holder" ] || holder="a non-container process (see: ss -ltnp 'sport = :$$p')"; \
+			echo "ERROR: port $$p is already in use by: $$holder"; conflict=1; \
+		fi; \
+	done; \
+	[ "$$conflict" -eq 0 ] || { echo "Free it, or override the port (e.g. make run SERVER_PORT=<free> / make e2e JAEGER_QUERY_PORT=<free>)."; exit 1; }
+
+#run: @ Run the application (pizza-store standalone on $$SERVER_PORT; no kitchen/delivery/Dapr)
 run: build
-	@mvn -B spring-boot:run -Ddependency-check.skip=true
+	@$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(RUN_PORTS)"
+	@mvn -B spring-boot:run -Ddependency-check.skip=true -pl pizza-store \
+		-Dspring-boot.run.arguments=--server.port=$(SERVER_PORT)
 
 #ci: @ Run local CI pipeline (clean, static-check, coverage-generate, coverage-check, build). cve-check is separate — run `make cve-check` explicitly.
 # coverage-generate runs `mvn verify -P integration-test` which executes BOTH
@@ -543,7 +614,7 @@ kind-create: deps-check
 	@$(HELM) upgrade --install dapr dapr/dapr \
 		--version $(DAPR_HELM_VERSION) \
 		--namespace dapr-system --create-namespace \
-		--wait --timeout 5m
+		--wait --timeout $(DAPR_HELM_TIMEOUT)
 	@echo "KinD cluster ready."
 
 #kind-deploy: @ Build + scan app images, load into KinD, apply manifests, wait for rollout
@@ -555,10 +626,10 @@ kind-deploy: kind-create image-build image-scan
 	done
 	@echo "--- Deploying Redis (backs Dapr pubsub + state store for e2e) ---"
 	@$(KUBECTL) apply -f k8s/redis-e2e.yaml
-	@$(KUBECTL) rollout status deployment/redis --timeout=120s
+	@$(KUBECTL) rollout status deployment/redis --timeout=$(ROLLOUT_TIMEOUT)
 	@echo "--- Deploying Jaeger (OTLP collector + query API for e2e tracing assertions) ---"
 	@$(KUBECTL) apply -f k8s/jaeger-e2e.yaml
-	@$(KUBECTL) rollout status deployment/jaeger --timeout=120s
+	@$(KUBECTL) rollout status deployment/jaeger --timeout=$(ROLLOUT_TIMEOUT)
 	@echo "--- Applying Dapr components (redis-backed for e2e) + subscriptions ---"
 	@# NOTE: k8s/pubsub.yaml (Kafka) and k8s/statestore.yaml (Postgres) are
 	@# replaced with k8s/components-e2e.yaml (redis) to keep e2e hermetic.
@@ -579,13 +650,13 @@ kind-deploy: kind-create image-build image-scan
 	@$(KUBECTL) patch svc pizza-store -p '{"spec":{"type":"LoadBalancer"}}'
 	@echo "--- Waiting for rollouts ---"
 	@for svc in pizza-store-deployment pizza-kitchen-deployment pizza-delivery-deployment; do \
-		$(KUBECTL) rollout status deployment/$$svc --timeout=600s; \
+		$(KUBECTL) rollout status deployment/$$svc --timeout=$(APP_ROLLOUT_TIMEOUT); \
 	done
 	@echo "--- Waiting for LoadBalancer IP ---"
-	@for i in $$(seq 1 60); do \
+	@for i in $$(seq 1 $(LB_WAIT_ATTEMPTS)); do \
 		ip=$$($(KUBECTL) get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); \
 		if [ -n "$$ip" ]; then echo "pizza-store LoadBalancer IP: $$ip"; exit 0; fi; \
-		sleep 2; \
+		sleep $(LB_WAIT_INTERVAL); \
 	done; \
 	echo "FAIL: pizza-store did not get a LoadBalancer IP"; exit 1
 
@@ -601,10 +672,10 @@ k8s-shared-deploy: deps-check
 	done
 	@echo "--- Deploying Redis (backs Dapr pubsub + state store) ---"
 	@$(KUBECTL) apply -f k8s/redis-e2e.yaml
-	@$(KUBECTL) rollout status deployment/redis --timeout=120s
+	@$(KUBECTL) rollout status deployment/redis --timeout=$(ROLLOUT_TIMEOUT)
 	@echo "--- Deploying Jaeger (OTLP collector + query API) ---"
 	@$(KUBECTL) apply -f k8s/jaeger-e2e.yaml
-	@$(KUBECTL) rollout status deployment/jaeger --timeout=120s
+	@$(KUBECTL) rollout status deployment/jaeger --timeout=$(ROLLOUT_TIMEOUT)
 	@echo "--- Applying Dapr components (redis-backed) + subscriptions ---"
 	@$(KUBECTL) apply -f k8s/components-e2e.yaml
 	@$(KUBECTL) apply -f k8s/subscription.yaml
@@ -648,7 +719,7 @@ k8s-shared-deploy: deps-check
 			--set shared.daprd.image.tag="$(DAPR_HELM_VERSION)" \
 			--set shared.controlPlane.sentry.port=443 \
 			--set shared.controlPlane.operator.port=443 \
-			--wait --timeout 150s || exit 1; \
+			--wait --timeout $(SHARED_DAPR_TIMEOUT) || exit 1; \
 	done
 	@echo "--- Patching pizza-store Service to LoadBalancer ---"
 	@$(KUBECTL) patch svc pizza-store -p '{"spec":{"type":"LoadBalancer"}}' 2>/dev/null || true
@@ -699,8 +770,12 @@ kind-down: kind-undeploy kind-destroy
 
 #e2e: @ Run end-to-end tests against the deployed KinD cluster
 e2e: kind-up
+	@$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(E2E_PORTS)"
 	@GATEWAY_IP="$$($(KUBECTL) get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" \
 		KUBECTL="$(KUBECTL)" \
+		GATEWAY_PORT="$(GATEWAY_PORT)" \
+		JAEGER_QUERY_HOST="$(JAEGER_QUERY_HOST)" \
+		JAEGER_QUERY_PORT="$(JAEGER_QUERY_PORT)" \
 		e2e/e2e-test.sh
 	@# Tear-down is manual by default to allow post-mortem on failure.
 	@# Uncomment the next line to auto-teardown on success:
@@ -748,7 +823,7 @@ release: pre-release
 
 .PHONY: help deps deps-check deps-maven deps-gjf \
 	env-check clean build test integration-test lint format format-check \
-	trivy-fs trivy-config secrets deps-prune deps-prune-check check-java-alignment static-check run \
+	trivy-fs trivy-config secrets deps-prune deps-prune-check check-java-alignment check-env check-ports static-check run \
 	ci ci-run cve-check cve-check-selftest coverage-generate coverage-check coverage-open \
 	print-deps-updates update-deps renovate-validate \
 	image-build image-scan image-test kind-create kind-deploy kind-undeploy kind-destroy \

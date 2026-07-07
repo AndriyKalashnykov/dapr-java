@@ -26,16 +26,42 @@ set -euo pipefail
 
 GATEWAY_IP="${GATEWAY_IP:-}"
 GATEWAY_PORT="${GATEWAY_PORT:-80}"
+# Host + port for the Jaeger query-API port-forward. Externalized (defaults
+# 127.0.0.1 / 16686) so a second concurrent e2e run — or a local Jaeger already
+# on 16686 — can be given a free port via `make e2e JAEGER_QUERY_PORT=<free>`.
+# The in-cluster container port stays 16686.
+JAEGER_QUERY_HOST="${JAEGER_QUERY_HOST:-127.0.0.1}"
+JAEGER_QUERY_PORT="${JAEGER_QUERY_PORT:-16686}"
 # Allow the Makefile to inject a fully-qualified kubectl (with --context) via
 # $KUBECTL. Falls back to plain kubectl for stand-alone invocation.
 KUBECTL="${KUBECTL:-kubectl}"
 
+# --- Timing knobs (externalized per rules/common/configuration.md; bare
+#     ${VAR:-default} so `make e2e` / .env tune cadence without editing the
+#     script). Defaults preserve the original values. ---
+CURL_MAX_TIME="${CURL_MAX_TIME:-15}"  # one-shot API/data curl timeout (s)
+CURL_POLL_MAX_TIME="${CURL_POLL_MAX_TIME:-10}"  # data-poll curl timeout (s)
+CURL_PROBE_MAX_TIME="${CURL_PROBE_MAX_TIME:-3}"  # liveness/probe curl timeout (s)
+KUBECTL_WAIT_TIMEOUT="${KUBECTL_WAIT_TIMEOUT:-180s}"  # per-pod `kubectl wait` timeout
+READY_ATTEMPTS="${READY_ATTEMPTS:-60}"  # LB-IP + route-readiness poll count
+POLL_INTERVAL="${POLL_INTERVAL:-2}"  # sleep between readiness/trace polls (s)
+LIFECYCLE_TIMEOUT_SECONDS="${LIFECYCLE_TIMEOUT_SECONDS:-150}"  # order-lifecycle budget (s)
+LIFECYCLE_POLL_INTERVAL="${LIFECYCLE_POLL_INTERVAL:-3}"  # sleep between lifecycle polls (s)
+WS_KEEPALIVE_SECONDS="${WS_KEEPALIVE_SECONDS:-25}"  # STOMP connection hold (s)
+WS_SETTLE_SECONDS="${WS_SETTLE_SECONDS:-1}"  # settle after CONNECT/SUBSCRIBE (s)
+WS_WAIT_ATTEMPTS="${WS_WAIT_ATTEMPTS:-25}"  # MESSAGE-frame poll count (x WS_SETTLE_SECONDS)
+JAEGER_BIND_ATTEMPTS="${JAEGER_BIND_ATTEMPTS:-10}"  # port-forward bind poll count
+JAEGER_BIND_INTERVAL="${JAEGER_BIND_INTERVAL:-0.5}"  # sleep between bind polls (s)
+JAEGER_POLL_ATTEMPTS="${JAEGER_POLL_ATTEMPTS:-20}"  # /api/services poll count
+JAEGER_POLL_INTERVAL="${JAEGER_POLL_INTERVAL:-3}"  # sleep between services polls (s)
+JAEGER_TRACE_ATTEMPTS="${JAEGER_TRACE_ATTEMPTS:-10}"  # /api/traces poll count (x POLL_INTERVAL)
+
 if [[ -z "$GATEWAY_IP" ]]; then
   echo "GATEWAY_IP not set; discovering from pizza-store LoadBalancer..." >&2
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 "$READY_ATTEMPTS"); do
     GATEWAY_IP=$($KUBECTL get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
     [[ -n "$GATEWAY_IP" ]] && break
-    sleep 2
+    sleep "$POLL_INTERVAL"
   done
 fi
 
@@ -53,7 +79,7 @@ fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 
 assert_status() {
   local method="$1" url="$2" expected="$3" body="${4:-}"
-  local opts=(-s -o /dev/null -w '%{http_code}' -X "$method" --max-time 15)
+  local opts=(-s -o /dev/null -w '%{http_code}' -X "$method" --max-time "$CURL_MAX_TIME")
   [[ -n "$body" ]] && opts+=(-H 'Content-Type: application/json' -d "$body")
   local status
   status=$(curl "${opts[@]}" "$url" || echo "000")
@@ -67,7 +93,7 @@ assert_status() {
 assert_status_in_range() {
   # Assert that status code is in a range [lo, hi] inclusive.
   local method="$1" url="$2" lo="$3" hi="$4" body="${5:-}"
-  local opts=(-s -o /dev/null -w '%{http_code}' -X "$method" --max-time 15)
+  local opts=(-s -o /dev/null -w '%{http_code}' -X "$method" --max-time "$CURL_MAX_TIME")
   [[ -n "$body" ]] && opts+=(-H 'Content-Type: application/json' -d "$body")
   local status
   status=$(curl "${opts[@]}" "$url" || echo "000")
@@ -79,9 +105,9 @@ assert_status_in_range() {
 }
 
 echo "=== Waiting for pods ==="
-$KUBECTL wait --for=condition=Ready pod -l app=pizza-store-service   --timeout=180s || true
-$KUBECTL wait --for=condition=Ready pod -l app=pizza-kitchen-service --timeout=180s || true
-$KUBECTL wait --for=condition=Ready pod -l app=pizza-delivery-service --timeout=180s || true
+$KUBECTL wait --for=condition=Ready pod -l app=pizza-store-service   --timeout="$KUBECTL_WAIT_TIMEOUT" || true
+$KUBECTL wait --for=condition=Ready pod -l app=pizza-kitchen-service --timeout="$KUBECTL_WAIT_TIMEOUT" || true
+$KUBECTL wait --for=condition=Ready pod -l app=pizza-delivery-service --timeout="$KUBECTL_WAIT_TIMEOUT" || true
 
 # K1.5 route-readiness poll. cloud-provider-kind assigns the LoadBalancer IP
 # (so `kubectl wait --for=jsonpath` returns) ~5-60s before its `kindccm-<hash>`
@@ -93,13 +119,13 @@ $KUBECTL wait --for=condition=Ready pod -l app=pizza-delivery-service --timeout=
 echo ""
 echo "=== Waiting for LoadBalancer route to be ready ==="
 ROUTE_READY=0
-for i in $(seq 1 60); do
-  if curl -sf -o /dev/null --max-time 3 "$BASE/actuator/health/readiness" 2>/dev/null; then
+for i in $(seq 1 "$READY_ATTEMPTS"); do
+  if curl -sf -o /dev/null --max-time "$CURL_PROBE_MAX_TIME" "$BASE/actuator/health/readiness" 2>/dev/null; then
     ROUTE_READY=1
-    echo "  …route ready after $((i * 2))s"
+    echo "  …route ready after $((i * POLL_INTERVAL))s"
     break
   fi
-  sleep 2
+  sleep "$POLL_INTERVAL"
 done
 if (( ROUTE_READY == 0 )); then
   echo "FATAL: LoadBalancer IP $GATEWAY_IP did not start serving /actuator/health/readiness within 120s." >&2
@@ -124,7 +150,7 @@ ORDER_PAYLOAD='{
 
 echo ""
 echo "=== Placing order ==="
-ORDER_RESP=$(curl -sf --max-time 15 -H 'Content-Type: application/json' \
+ORDER_RESP=$(curl -sf --max-time "$CURL_MAX_TIME" -H 'Content-Type: application/json' \
   -d "$ORDER_PAYLOAD" "$BASE/order" || echo "")
 if [[ -z "$ORDER_RESP" ]]; then
   fail "POST /order returned empty or errored"
@@ -148,12 +174,12 @@ fi
 # Budget 150s to absorb worst-case kitchen randomness + buffer.
 echo ""
 echo "=== Polling for order lifecycle (budget 150s) ==="
-DEADLINE=$(( $(date +%s) + 150 ))
+DEADLINE=$(( $(date +%s) + LIFECYCLE_TIMEOUT_SECONDS ))
 FINAL_STATUS=""
 SEEN_COMPLETED=0
 SEEN_DELIVERY=0
 while (( $(date +%s) < DEADLINE )); do
-  ORDERS_JSON=$(curl -sf --max-time 10 "$BASE/order" 2>/dev/null || echo "")
+  ORDERS_JSON=$(curl -sf --max-time "$CURL_POLL_MAX_TIME" "$BASE/order" 2>/dev/null || echo "")
   FINAL_STATUS=$(echo "$ORDERS_JSON" | jq -r --arg id "$ORDER_ID" \
     '.orders[]? | select(.id == $id) | .status' 2>/dev/null || true)
   echo "  …current status: ${FINAL_STATUS:-unknown}"
@@ -164,7 +190,7 @@ while (( $(date +%s) < DEADLINE )); do
     SEEN_COMPLETED=1
     break
   fi
-  sleep 3
+  sleep "$LIFECYCLE_POLL_INTERVAL"
 done
 
 if (( SEEN_COMPLETED == 1 )); then
@@ -185,7 +211,7 @@ fi
 # 4. State store round-trip: GET /order after lifecycle must still have the order
 echo ""
 echo "=== State store round-trip ==="
-PERSISTED=$(curl -sf --max-time 10 "$BASE/order" | \
+PERSISTED=$(curl -sf --max-time "$CURL_POLL_MAX_TIME" "$BASE/order" | \
   jq -r --arg id "$ORDER_ID" '.orders[]? | select(.id == $id) | .id' 2>/dev/null || true)
 if [[ "$PERSISTED" == "$ORDER_ID" ]]; then
   pass "kvstore round-trip: order $ORDER_ID persisted and readable"
@@ -219,23 +245,23 @@ else
   {
     printf 'CONNECT\naccept-version:1.2\nhost:%s\n\n\x00\n' "$GATEWAY_IP"
     printf 'SUBSCRIBE\nid:sub-e2e\ndestination:/topic/events\n\n\x00\n'
-    sleep 25
+    sleep "$WS_KEEPALIVE_SECONDS"
   } | websocat "ws://${GATEWAY_IP}:${GATEWAY_PORT}/ws" > "$WS_LOG" 2>&1 &
   WS_PID=$!
-  sleep 1  # Let CONNECT/SUBSCRIBE land before triggering the broadcast.
+  sleep "$WS_SETTLE_SECONDS"  # Let CONNECT/SUBSCRIBE land before triggering the broadcast.
 
   WS_ORDER='{"customer":{"name":"ws-tester","email":"ws@example.com"},"items":[{"type":"margherita","amount":1}]}'
-  curl -sf --max-time 15 -H 'Content-Type: application/json' \
+  curl -sf --max-time "$CURL_MAX_TIME" -H 'Content-Type: application/json' \
     -d "$WS_ORDER" "$BASE/order" >/dev/null || true
 
   # Wait up to 25s for at least one STOMP MESSAGE frame.
   ws_seen=0
-  for _ in $(seq 1 25); do
+  for _ in $(seq 1 "$WS_WAIT_ATTEMPTS"); do
     if grep -q '^MESSAGE' "$WS_LOG" 2>/dev/null; then
       ws_seen=1
       break
     fi
-    sleep 1
+    sleep "$WS_SETTLE_SECONDS"
   done
 
   kill "$WS_PID" 2>/dev/null || true
@@ -252,7 +278,7 @@ fi
 # 7. OTel traceparent propagation (optional, soft check)
 echo ""
 echo "=== OTel traceparent (optional) ==="
-HDRS=$(curl -s -D - -o /dev/null --max-time 10 "$BASE/actuator/health" || true)
+HDRS=$(curl -s -D - -o /dev/null --max-time "$CURL_POLL_MAX_TIME" "$BASE/actuator/health" || true)
 if echo "$HDRS" | grep -qi '^traceparent:'; then
   TP=$(echo "$HDRS" | grep -i '^traceparent:' | head -1 | tr -d '\r')
   pass "traceparent present: $TP"
@@ -269,24 +295,24 @@ fi
 echo ""
 echo "=== OTel spans in Jaeger ==="
 JAEGER_PF_LOG=$(mktemp)
-$KUBECTL port-forward svc/jaeger 16686:16686 > "$JAEGER_PF_LOG" 2>&1 &
+$KUBECTL port-forward svc/jaeger "$JAEGER_QUERY_PORT":16686 > "$JAEGER_PF_LOG" 2>&1 &
 JAEGER_PF_PID=$!
-# Give port-forward 5s to bind; abort cleanly if it can't.
-for _ in $(seq 1 10); do
-  curl -sf --max-time 1 http://127.0.0.1:16686/api/services >/dev/null 2>&1 && break
-  sleep 0.5
+# Give port-forward time to bind; abort cleanly if it can't.
+for _ in $(seq 1 "$JAEGER_BIND_ATTEMPTS"); do
+  curl -sf --max-time "$CURL_PROBE_MAX_TIME" "http://$JAEGER_QUERY_HOST:$JAEGER_QUERY_PORT/api/services" >/dev/null 2>&1 && break
+  sleep "$JAEGER_BIND_INTERVAL"
 done
 
 JAEGER_SERVICES=""
-for _ in $(seq 1 20); do
-  JAEGER_SERVICES=$(curl -sf --max-time 3 http://127.0.0.1:16686/api/services 2>/dev/null \
+for _ in $(seq 1 "$JAEGER_POLL_ATTEMPTS"); do
+  JAEGER_SERVICES=$(curl -sf --max-time "$CURL_PROBE_MAX_TIME" "http://$JAEGER_QUERY_HOST:$JAEGER_QUERY_PORT/api/services" 2>/dev/null \
     | jq -r '.data[]? // empty' | sort -u | tr '\n' ',' || true)
   if echo "$JAEGER_SERVICES" | grep -q 'pizza-store,' \
      && echo "$JAEGER_SERVICES" | grep -q 'pizza-kitchen,' \
      && echo "$JAEGER_SERVICES" | grep -q 'pizza-delivery,'; then
     break
   fi
-  sleep 3
+  sleep "$JAEGER_POLL_INTERVAL"
 done
 
 for svc in pizza-store pizza-kitchen pizza-delivery; do
@@ -301,12 +327,12 @@ for svc in pizza-store pizza-kitchen pizza-delivery; do
   # DELIVERED during THIS run by fetching one and requiring a non-empty data[].
   # Short retry absorbs Jaeger's span-indexing lag after the lifecycle above.
   TRACE_COUNT=0
-  for _ in $(seq 1 10); do
-    TRACE_COUNT=$(curl -sf --max-time 3 \
-      "http://127.0.0.1:16686/api/traces?service=${svc}&limit=1&lookback=1h" 2>/dev/null \
+  for _ in $(seq 1 "$JAEGER_TRACE_ATTEMPTS"); do
+    TRACE_COUNT=$(curl -sf --max-time "$CURL_PROBE_MAX_TIME" \
+      "http://$JAEGER_QUERY_HOST:$JAEGER_QUERY_PORT/api/traces?service=${svc}&limit=1&lookback=1h" 2>/dev/null \
       | jq -r '(.data | length) // 0' 2>/dev/null || echo 0)
     [ "${TRACE_COUNT:-0}" -ge 1 ] && break
-    sleep 2
+    sleep "$POLL_INTERVAL"
   done
   if [ "${TRACE_COUNT:-0}" -ge 1 ]; then
     pass "Jaeger has a queryable trace for $svc this run (data[]=$TRACE_COUNT)"

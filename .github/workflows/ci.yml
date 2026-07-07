@@ -339,9 +339,8 @@ jobs:
   # Per-push image scan (gates 1–3: Paketo CNB build + Trivy image scan +
   # Spring Boot boot-marker smoke test). The `docker` matrix job is
   # tag-gated, so without this sibling Paketo base-layer CVEs only surface
-  # on release day. Single-arch (amd64) is sufficient for CVE detection —
-  # arm64 + multi-arch manifest assembly remain in the tag-gated `docker`
-  # job. Matrix per-service so each Paketo build (~2 min) runs in parallel.
+  # on release day. amd64-only, matching the tag-gated `docker` publish job.
+  # Matrix per-service so each Paketo build (~2 min) runs in parallel.
   image-scan:
     needs: [changes, static-check]
     if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
@@ -603,15 +602,15 @@ jobs:
   #   GATE 1: Trivy image scan (CRITICAL/HIGH blocking, fixed-only).
   #   GATE 2: Spring Boot boot-marker smoke test (catches boot regressions
   #           Trivy can't see — missing classes, port binds, config errors).
-  #   GATE 3: per-arch push to GHCR with `:<version>-<arch>` tag suffix.
-  # The downstream `docker-manifest` job then assembles a multi-arch
-  # manifest list under `:<version>` + `:latest` and cosign-signs the
-  # manifest digest (single signature covers both archs).
+  #   GATE 3: push to GHCR with a `:<version>-amd64` staging tag.
+  # The downstream `docker-manifest` job then promotes it to `:<version>` +
+  # `:latest` and cosign-signs the image digest.
   #
-  # provenance: false / sbom: false applies to the Paketo CNB build path
-  # (no buildkit attestations emitted) so the GHCR Packages "OS / Arch" tab
-  # renders correctly. spring-boot:build-image only builds the host arch —
-  # cross-build is not supported — so amd64/arm64 each get a native runner.
+  # amd64-only: spring-boot:build-image (Paketo CNB) builds the host arch
+  # with no cross-build support, and arm64 publishing was intentionally
+  # dropped. provenance: false / sbom: false applies to the Paketo CNB
+  # build path (no buildkit attestations emitted) so the GHCR Packages
+  # "OS / Arch" tab renders correctly.
   docker:
     needs: [static-check, build, test, integration-test, cve-check, e2e]
     # Explicit `if:` strips GitHub's implicit success() check — must
@@ -620,7 +619,7 @@ jobs:
     # `if:` starting with `!` is not valid YAML.
     if: |
       !failure() && !cancelled() && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -629,13 +628,7 @@ jobs:
       fail-fast: false      # one bad service shouldn't cancel the others'
                             # in-flight scans — collect all results
       matrix:
-        include:
-          - { service: pizza-store,    arch: amd64, runner: ubuntu-latest      }
-          - { service: pizza-store,    arch: arm64, runner: ubuntu-24.04-arm   }
-          - { service: pizza-kitchen,  arch: amd64, runner: ubuntu-latest      }
-          - { service: pizza-kitchen,  arch: arm64, runner: ubuntu-24.04-arm   }
-          - { service: pizza-delivery, arch: amd64, runner: ubuntu-latest      }
-          - { service: pizza-delivery, arch: arm64, runner: ubuntu-24.04-arm   }
+        service: [pizza-store, pizza-kitchen, pizza-delivery]
     env:
       REGISTRY: ghcr.io
 
@@ -681,12 +674,12 @@ jobs:
     # GATE 1+2: Build + Trivy image scan via existing make target.
     # SERVICES override scopes the loop to this matrix entry only — each
     # service builds + scans on its own runner in parallel. The matrix
-    # coordinate ($SVC) renders in the GitHub UI as `docker (pizza-store,
-    # amd64) / Build and scan image`, so the step name itself stays static.
+    # coordinate ($SVC) renders in the GitHub UI as `docker (pizza-store)
+    # / Build and scan image`, so the step name itself stays static.
     - name: Build and scan image
       run: make image-scan SERVICES='${{ matrix.service }}'
 
-    # GATE 3 of the per-arch flow: Spring Boot boot-marker smoke test.
+    # GATE 3 of the publish flow: Spring Boot boot-marker smoke test.
     # Validates the image actually boots Spring Boot before publishing —
     # catches regressions Trivy and filesystem scans miss (missing classes,
     # port bind failures, broken auto-config). Pizza services depend on
@@ -724,10 +717,9 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Push per-arch tag
+    - name: Push amd64 staging tag
       env:
         SVC: ${{ matrix.service }}
-        ARCH: ${{ matrix.arch }}
         VERSION: ${{ steps.ver.outputs.version }}
         OWNER: ${{ steps.ns.outputs.owner }}
         REPO: ${{ steps.ns.outputs.repo }}
@@ -736,20 +728,20 @@ jobs:
         # Repo-namespace (ghcr.io/<owner>/<repo>/<package>) — GITHUB_TOKEN
         # can create new packages here on first push; user-namespace cannot.
         src="${SVC}:e2e"
-        dst="${REGISTRY}/${OWNER}/${REPO}/${SVC}:${VERSION}-${ARCH}"
+        dst="${REGISTRY}/${OWNER}/${REPO}/${SVC}:${VERSION}-amd64"
         echo "--- ${src} → ${dst} ---"
         docker tag "${src}" "${dst}"
         docker push "${dst}"
 
-  # Assemble multi-arch manifest list per service and cosign-sign the
-  # manifest digest. Runs once after all per-arch pushes succeed. A single
-  # signature on the manifest covers every arch underneath — clearer Rekor
-  # trail than signing each per-arch image separately.
+  # Promote each service's amd64 staging tag to the clean `:<version>` +
+  # `:latest` tags and cosign-sign the image digest. Runs once per service
+  # after the `docker` push succeeds. Signing happens here (not in `docker`)
+  # so the clean published tags are always the signed ones.
   docker-manifest:
     needs: docker
     # Same rationale as the `docker` job — explicit `if:` strips implicit
-    # success() check, so a partial-failure in the per-arch matrix must
-    # still block manifest assembly + signing.
+    # success() check, so a partial-failure in the per-service matrix must
+    # still block promotion + signing.
     if: |
       !failure() && !cancelled() && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -788,7 +780,7 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Assemble multi-arch manifest
+    - name: Promote amd64 image to clean tags
       id: manifest
       env:
         SVC: ${{ matrix.service }}
@@ -799,17 +791,15 @@ jobs:
         set -euo pipefail
         base="${REGISTRY}/${OWNER}/${REPO}/${SVC}"
         amd64_ref="${base}:${VERSION}-amd64"
-        arm64_ref="${base}:${VERSION}-arm64"
         ver_tag="${base}:${VERSION}"
         latest_tag="${base}:latest"
-        # imagetools create stitches the per-arch refs into a manifest list
-        # and pushes both `:VERSION` and `:latest` pointing at the same
-        # digest. -t may be repeated to push multiple tags in one call.
+        # imagetools create retags the amd64 staging image to `:VERSION` and
+        # `:latest` (same digest, single source). -t may be repeated to push
+        # multiple tags in one call.
         docker buildx imagetools create \
           -t "${ver_tag}" \
           -t "${latest_tag}" \
-          "${amd64_ref}" \
-          "${arm64_ref}"
+          "${amd64_ref}"
         DIGEST=$(docker buildx imagetools inspect "${ver_tag}" --format '{{ .Manifest.Digest }}')
         echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
         {
@@ -824,7 +814,7 @@ jobs:
 
     # Keyless OIDC signing via Sigstore Fulcio — no key material to manage,
     # signature provenance recorded in the public Rekor transparency log.
-    # Sign the manifest-list digest: a single signature covers both archs.
+    # Sign the amd64 image digest shared by the `:VERSION` and `:latest` tags.
     - name: Sign image with cosign
       env:
         TAGS: ${{ steps.manifest.outputs.tags }}

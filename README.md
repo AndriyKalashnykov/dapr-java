@@ -5,7 +5,7 @@
 
 # Pizza on Dapr — Spring Boot 4 Microservices Reference
 
-Reference implementation of a three-service Java microservice platform on [Spring Boot 4](https://spring.io/projects/spring-boot) + [Dapr](https://dapr.io) — pub/sub on topic `topic`, state store `kvstore`, mTLS service invocation. The **runtime surface** exposes REST controllers, a STOMP WebSocket on `pizza-store`, per-pod Dapr sidecars, [Micrometer Tracing](https://micrometer.io/docs/tracing) + [OpenTelemetry](https://opentelemetry.io) OTLP/HTTP spans shipped to an in-cluster [Jaeger](https://www.jaegertracing.io) for e2e, and Actuator-backed liveness/readiness probes; the **delivery surface** covers a [Paketo CNB](https://paketo.io) image build (`spring-boot:build-image`) with multi-arch (amd64+arm64) GHCR publishing + [cosign](https://www.sigstore.dev) keyless OIDC signing, a [Testcontainers](https://testcontainers.com) + [WireMock](https://wiremock.org) integration suite, a KinD + [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) + [`websocat`](https://github.com/vi/websocat) end-to-end harness, and a supply-chain–hardened [GitHub Actions](https://github.com/features/actions) pipeline ([Trivy](https://trivy.dev) fs/config/image, [gitleaks](https://github.com/gitleaks/gitleaks), [OWASP dependency-check](https://owasp.org/www-project-dependency-check/), [OWASP ZAP](https://www.zaproxy.org) baseline DAST, [container-structure-test](https://github.com/GoogleContainerTools/container-structure-test) CNB-contract assertions, [kubeconform](https://github.com/yannh/kubeconform), Checkstyle + google-java-format, mermaid-lint, PlantUML `diagrams-check`) — runnable locally via [`act`](https://github.com/nektos/act) (`make ci-run`) — on an [mise](https://mise.jdx.dev/)-pinned toolchain with [Renovate](https://docs.renovatebot.com)-managed dependencies and a path-filtered `ci-pass` aggregator.
+Reference implementation of a three-service Java microservice platform on [Spring Boot 4](https://spring.io/projects/spring-boot) + [Dapr](https://dapr.io) — pub/sub on topic `topic`, state store `kvstore`, mTLS service invocation. The **runtime surface** exposes REST controllers, a STOMP WebSocket on `pizza-store`, per-pod Dapr sidecars, [Micrometer Tracing](https://micrometer.io/docs/tracing) + [OpenTelemetry](https://opentelemetry.io) OTLP/HTTP spans shipped to an in-cluster [Jaeger](https://www.jaegertracing.io) for e2e, and Actuator-backed liveness/readiness probes; the **delivery surface** covers a [Paketo CNB](https://paketo.io) image build (`spring-boot:build-image`) with amd64 GHCR publishing + [cosign](https://www.sigstore.dev) keyless OIDC signing, a [Testcontainers](https://testcontainers.com) + [WireMock](https://wiremock.org) integration suite, a KinD + [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) + [`websocat`](https://github.com/vi/websocat) end-to-end harness, and a supply-chain–hardened [GitHub Actions](https://github.com/features/actions) pipeline ([Trivy](https://trivy.dev) fs/config/image, [gitleaks](https://github.com/gitleaks/gitleaks), [OWASP dependency-check](https://owasp.org/www-project-dependency-check/), [OWASP ZAP](https://www.zaproxy.org) baseline DAST, [container-structure-test](https://github.com/GoogleContainerTools/container-structure-test) CNB-contract assertions, [kubeconform](https://github.com/yannh/kubeconform), Checkstyle + google-java-format, mermaid-lint, PlantUML `diagrams-check`) — runnable locally via [`act`](https://github.com/nektos/act) (`make ci-run`) — on an [mise](https://mise.jdx.dev/)-pinned toolchain with [Renovate](https://docs.renovatebot.com)-managed dependencies and a path-filtered `ci-pass` aggregator.
 
 ```mermaid
 C4Context
@@ -39,10 +39,10 @@ C4Context
 | Observability | `spring-boot-starter-opentelemetry` 4.0.7 (umbrella starter — bundles `spring-boot-micrometer-tracing-opentelemetry` + `spring-boot-opentelemetry` autoconfig + `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) + OpenTelemetry 1.62.0 SDK + Jaeger all-in-one 1.65.0 for e2e | Spans flow Spring Observation → OTel SDK → OTLP/HTTP → Jaeger collector. The lower-level deps (`micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) ship the runtime but NOT the SB 4.0 autoconfig modules (which live in `spring-boot-micrometer-tracing-opentelemetry`) — use the starter |
 | CVE scan | OWASP dependency-check 12.2.2 (`make cve-check`) | Pre-tag release gate + weekly scheduled run; settings.xml routes `NVD_API_KEY` + Sonatype OSS Index (`OSS_INDEX_USER`/`OSS_INDEX_TOKEN`) — two CVE sources, no argv leak |
 | DAST | OWASP ZAP baseline scan ([`zaproxy/action-baseline@v0.15.0`](https://github.com/zaproxy/action-baseline)) | Runs against the LB-exposed `pizza-store` after e2e passes; **strict gate** — `pizza-store` ships baseline security headers (`SecurityHeadersFilter`: CSP, X-Frame-Options, nosniff, Referrer/Permissions-Policy, COOP/CORP) + Subresource-Integrity on CDN scripts; residual accepted alerts documented in `.zap/rules.tsv` |
-| Image build | Paketo CNB (`spring-boot:build-image`); multi-arch (amd64+arm64) on native runners | No `Dockerfile` — Paketo composes the OCI layers |
+| Image build | Paketo CNB (`spring-boot:build-image`); amd64 on a native runner | No `Dockerfile` — Paketo composes the OCI layers |
 | Image scan | Trivy `--ignore-unfixed` HIGH/CRITICAL on the built image | Catches Paketo base-layer CVEs invisible to `trivy-fs` and `cve-check` |
 | Image structure | [container-structure-test](https://github.com/GoogleContainerTools/container-structure-test) 1.22.1 (`make image-test`) — `compose/structure-test/paketo.yaml` | Asserts Paketo CNB image contract (USER `1002:1001` nonroot, entrypoint `/cnb/process/web`, layered-JAR layout, no `/bin/sh`/`apt`/`curl` leaked). Catches Paketo upstream regressions earlier than runtime |
-| Image signing | [cosign](https://www.sigstore.dev) keyless OIDC (Sigstore Fulcio) | Signs each pushed multi-arch manifest digest; provenance in the Rekor transparency log |
+| Image signing | [cosign](https://www.sigstore.dev) keyless OIDC (Sigstore Fulcio) | Signs each pushed image digest; provenance in the Rekor transparency log |
 | Diagram lint | PlantUML 1.2026.4 (`make diagrams-check`) + mermaid-cli 11.15.0 (`make mermaid-lint`) | Wired into `make static-check`; PlantUML render is version-stamped (rerenders on `PLANTUML_VERSION` bump) |
 | Manifest validation | kubeconform 0.7.0 (`make k8s-validate`, vendored OpenAPI — no cluster needed) | Validates both `k8s/` and `k8s-dapr-shared/` on every push |
 | Coverage | JaCoCo (80% min, enforced) | Enforced by `make coverage-check` |
@@ -55,6 +55,7 @@ C4Context
 The fastest path from a clean checkout to a working three-service stack with Dapr + Redis + Jaeger:
 
 ```bash
+cp .env.example .env   # optional — override tunable ports (SERVER_PORT, JAEGER_QUERY_PORT, …); defaults work as-is
 make deps          # install build dependencies via mise (reads .mise.toml)
 make kind-up       # create KinD cluster, install Dapr via Helm, deploy services + Redis + Jaeger
 make e2e           # run e2e/e2e-test.sh against the LoadBalancer IP
@@ -62,6 +63,8 @@ make kind-down     # tear everything down
 ```
 
 `make kind-up` chains `kind-create` + `image-build` + `kind-deploy` (~3-5 min on a warm cache). See [Kubernetes Deployment](#kubernetes-deployment) for granular targets.
+
+Every operator-tunable value (ports, the OTLP endpoint) is documented in the committed [`.env.example`](.env.example) with its default. `.env` (gitignored) overrides them; `make` also reads `.env` via `-include`. Fixed host-port binds (`make run` → `SERVER_PORT`, `make e2e` → `JAEGER_QUERY_PORT`) are guarded by `make check-ports`, which fails early and names the process holding a bound port.
 
 ### Single-service development loop
 
@@ -400,11 +403,11 @@ GitHub Actions runs on push to `main`, tags `v*`, pull requests, a weekly schedu
 | **image-scan** | push, PR, tags (`code` flag) | `changes`, `static-check` | Per-push image gate (matrix per service, single-arch amd64): `make image-scan SERVICES=<svc>` builds via Paketo CNB and runs `trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`, then a Spring Boot boot-marker smoke test, then `make image-test SERVICES=<svc>` (container-structure-test against `compose/structure-test/paketo.yaml`). Catches Paketo base-layer CVE regressions and CNB contract drift between release tags |
 | **e2e** | push to `main`/tag, PR label `run-e2e` or `e2e` flag, `workflow_dispatch` | `changes`, `build`, `test` | `jdx/mise-action` installs kind/kubectl/helm/trivy/gitleaks/kubeconform/websocat via `mise`, then `make e2e` (now includes K1.5 route-readiness poll + WebSocket broadcast assertion via `websocat`); followed by a **strict** OWASP ZAP baseline DAST scan against the LB-exposed pizza-store (gated by `.zap/rules.tsv`). Collects pod logs + cluster events on failure |
 | **e2e-shared** | weekly schedule (Mon 06:00 UTC), `workflow_dispatch` | — | Drift-check for the alternate `k8s-dapr-shared/` shared-sidecar topology: builds images, brings up KinD, installs a standalone shared daprd per app-id (`dapr-shared-chart`), deploys the apps, and runs the full e2e suite (`make e2e-shared`). Off the per-PR path; catches runtime regressions `k8s-validate` (parse-only) can't |
-| **docker** | tag push only | `static-check`, `build`, `test`, `integration-test`, `cve-check`, `e2e` | Per-service-per-arch matrix (6 runners total: `{pizza-store, pizza-kitchen, pizza-delivery} × {amd64, arm64}`; arm64 runs on `ubuntu-24.04-arm`). GATE 1+2: `make image-scan` builds via `spring-boot:build-image` (Paketo CNB, native arch only) and runs `trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`. GATE 3: Spring Boot boot-marker smoke test (90 s timeout, fails on missing classes / port-bind / broken auto-config). Each runner pushes its per-arch tag `ghcr.io/<owner>/<repo>/pizza-*:<version>-<arch>` |
-| **docker-manifest** | tag push only | `docker` | Per-service matrix. Assembles a multi-arch manifest list with `docker buildx imagetools create` from the per-arch refs, pushes both `:<version>` and `:latest` to GHCR, and signs the manifest digest with [cosign keyless OIDC](https://docs.sigstore.dev/cosign/keyless/) (Sigstore Fulcio, no key material to manage; one signature covers both archs and is recorded in the public Rekor transparency log) |
+| **docker** | tag push only | `static-check`, `build`, `test`, `integration-test`, `cve-check`, `e2e` | Per-service matrix (3 runners: `{pizza-store, pizza-kitchen, pizza-delivery}`, amd64 on `ubuntu-latest`). GATE 1+2: `make image-scan` builds via `spring-boot:build-image` (Paketo CNB, native arch only) and runs `trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`. GATE 3: Spring Boot boot-marker smoke test (90 s timeout, fails on missing classes / port-bind / broken auto-config). Each runner pushes an amd64 staging tag `ghcr.io/<owner>/<repo>/pizza-*:<version>-amd64` |
+| **docker-manifest** | tag push only | `docker` | Per-service matrix. Promotes the amd64 staging image to `:<version>` and `:latest` with `docker buildx imagetools create`, pushes both to GHCR, and signs the image digest with [cosign keyless OIDC](https://docs.sigstore.dev/cosign/keyless/) (Sigstore Fulcio, no key material to manage; signature recorded in the public Rekor transparency log) |
 | **ci-pass** | always | all above (incl. `image-scan`) | Gate job that fails if any needed job failed or was cancelled (required-status-check target) |
 
-Verify a published multi-arch image's signature locally:
+Verify a published image's signature locally:
 
 ```bash
 cosign verify ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.3 \
@@ -412,7 +415,7 @@ cosign verify ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.3 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The manifest digest is shared by `linux/amd64` and `linux/arm64` — a single signature covers both. Inspect with `docker buildx imagetools inspect ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.3`.
+Images are published for `linux/amd64` only. Inspect with `docker buildx imagetools inspect ghcr.io/andriykalashnykov/dapr-java/pizza-store:0.1.3`.
 
 ### Required Secrets and Variables
 
