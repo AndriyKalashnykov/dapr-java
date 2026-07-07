@@ -7,19 +7,11 @@
 
 Reference implementation of a three-service Java microservice platform on [Spring Boot 4](https://spring.io/projects/spring-boot) + [Dapr](https://dapr.io) — pub/sub on topic `topic`, state store `kvstore`, mTLS service invocation. The **runtime surface** exposes REST controllers, a STOMP WebSocket on `pizza-store`, per-pod Dapr sidecars, [Micrometer Tracing](https://micrometer.io/docs/tracing) + [OpenTelemetry](https://opentelemetry.io) OTLP/HTTP spans shipped to an in-cluster [Jaeger](https://www.jaegertracing.io) for e2e, and Actuator-backed liveness/readiness probes; the **delivery surface** covers a [Paketo CNB](https://paketo.io) image build (`spring-boot:build-image`) with amd64 GHCR publishing + [cosign](https://www.sigstore.dev) keyless OIDC signing, a [Testcontainers](https://testcontainers.com) + [WireMock](https://wiremock.org) integration suite, a KinD + [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) + [`websocat`](https://github.com/vi/websocat) end-to-end harness, and a supply-chain–hardened [GitHub Actions](https://github.com/features/actions) pipeline ([Trivy](https://trivy.dev) fs/config/image, [gitleaks](https://github.com/gitleaks/gitleaks), [OWASP dependency-check](https://owasp.org/www-project-dependency-check/), [OWASP ZAP](https://www.zaproxy.org) baseline DAST, [container-structure-test](https://github.com/GoogleContainerTools/container-structure-test) CNB-contract assertions, [kubeconform](https://github.com/yannh/kubeconform), Checkstyle + google-java-format, mermaid-lint, PlantUML `diagrams-check`) — runnable locally via [`act`](https://github.com/nektos/act) (`make ci-run`) — on an [mise](https://mise.jdx.dev/)-pinned toolchain with [Renovate](https://docs.renovatebot.com)-managed dependencies and a path-filtered `ci-pass` aggregator.
 
-```mermaid
-C4Context
-  title System Context — Pizza on Dapr
+<p align="center">
+  <img src="docs/diagrams/out/c4-context.png" alt="C4 System Context — Pizza on Dapr" width="640">
+</p>
 
-  Person(customer, "Customer", "Places and tracks pizza orders")
-  System(pizza, "Pizza Store Platform", "Orders, cooks, and delivers pizzas on Spring Boot 4 + Dapr")
-  System_Ext(dapr, "Dapr Runtime", "Sidecar building blocks — service invocation, pub/sub, state")
-
-  Rel(customer, pizza, "Places and tracks orders", "HTTPS / WebSocket")
-  Rel(pizza, dapr, "Uses building blocks", "HTTP / gRPC")
-
-  UpdateLayoutConfig($c4ShapeInRow="3")
-```
+<p align="center"><em>System context — a customer places and tracks orders on the Pizza Store Platform, which delegates service invocation, pub/sub, and state to its co-deployed Dapr runtime. Source: <a href="docs/diagrams/c4-context.puml"><code>docs/diagrams/c4-context.puml</code></a>.</em></p>
 
 ## Tech Stack
 
@@ -27,14 +19,14 @@ C4Context
 |-----------|-----------|-----------|
 | Language | Java 21 LTS | Current LTS with virtual threads and pattern matching |
 | Framework | Spring Boot 4.0.7 | Current GA; provides embedded Tomcat, auto-configuration, and Actuator |
-| Runtime sidecar | Dapr 1.17.7 (Helm) / 1.17.3 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
-| Dapr SDK | `dapr-spring-boot-4-starter` 1.17.3 | On the 1.17 line to match the 1.17.7 runtime; 1.18.0 is also GA but held until the runtime moves to 1.18 (SDK-on-or-behind-runtime cadence) |
+| Runtime sidecar | Dapr 1.17.7 (Helm) / 1.17.4 (Testcontainers) | Provides PubSub, State Store, Service Invocation APIs. Helm chart on KinD/prod runs ahead of the Java SDK; Testcontainers pins to the SDK version |
+| Dapr SDK | `dapr-spring-boot-4-starter` 1.17.4 | On the 1.17 line to match the 1.17.7 runtime; 1.18.0 is also GA but held until the runtime moves to 1.18 (SDK-on-or-behind-runtime cadence) |
 | HTTP server | Embedded Tomcat 11.0.22 | Pinned in `dependencyManagement` to address CVEs |
-| JSON | Jackson 3.1.3 | Pinned to address CVE-reported 2.x transitive dependencies |
+| JSON | Jackson 3.1.4 | Pinned to address CVE-reported 2.x transitive dependencies |
 | gRPC | gRPC 1.81.0 | Pinned to address CVEs in older Spring-Boot-managed version |
 | Netty | Netty 4.2.15.Final (BOM) | Pinned via BOM ordered ahead of `spring-boot-dependencies` to address [CVE-2026-42583](https://avd.aquasec.com/nvd/cve-2026-42583) (Lz4FrameDecoder), [CVE-2026-42584](https://avd.aquasec.com/nvd/cve-2026-42584) (HttpClientCodec desync), [CVE-2026-42587](https://avd.aquasec.com/nvd/cve-2026-42587) (HttpContentDecompressor), and [CVE-2026-44249](https://avd.aquasec.com/nvd/cve-2026-44249) / [CVE-2026-45416](https://avd.aquasec.com/nvd/cve-2026-45416) (netty-handler IPv6 subnet rule bypass) |
 | Build | Maven 3.9.16 | Latest 3.9.x; Maven 4.0 upgrade tracked in backlog |
-| Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.3 | Runs containerized Dapr sidecars during tests |
+| Testcontainers | Testcontainers 2.x + `testcontainers-dapr` 1.17.4 | Runs containerized Dapr sidecars during tests |
 | Code quality | Checkstyle + google-java-format 1.35.0 + Trivy fs/config/image + gitleaks | Composite `make static-check` gate |
 | Observability | `spring-boot-starter-opentelemetry` 4.0.7 (umbrella starter — bundles `spring-boot-micrometer-tracing-opentelemetry` + `spring-boot-opentelemetry` autoconfig + `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) + OpenTelemetry 1.62.0 SDK + Jaeger all-in-one 1.65.0 for e2e | Spans flow Spring Observation → OTel SDK → OTLP/HTTP → Jaeger collector. The lower-level deps (`micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`) ship the runtime but NOT the SB 4.0 autoconfig modules (which live in `spring-boot-micrometer-tracing-opentelemetry`) — use the starter |
 | CVE scan | OWASP dependency-check 12.2.2 (`make cve-check`) | Pre-tag release gate + weekly scheduled run; settings.xml routes `NVD_API_KEY` + Sonatype OSS Index (`OSS_INDEX_USER`/`OSS_INDEX_TOKEN`) — two CVE sources, no argv leak |
@@ -105,12 +97,6 @@ make env-check
 ## Architecture
 
 The Pizza Store application simulates placing a Pizza Order that is processed by three Spring Boot 4 services communicating over Dapr building blocks. The Pizza Store Service serves as the frontend and backend to place orders; orders are sent to the Kitchen Service for preparation and once ready, the Delivery Service takes the order to the customer. [Dapr](https://dapr.io) decouples the services from infrastructure — [building block APIs](https://docs.dapr.io/concepts/building-blocks-concept/) (State Store, PubSub, Service Invocation) let infrastructure teams use Redis in e2e and PostgreSQL/Kafka in production without touching application code.
-
-### Context View
-
-<img src="docs/diagrams/out/c4-context.png" alt="C4 Context diagram — Pizza on Dapr" width="220">
-
-A customer interacts with the Pizza Store Platform over HTTPS / WebSocket; the platform delegates service invocation, pub/sub, and state persistence to its co-deployed Dapr Runtime (Helm-installed control plane plus per-pod sidecars). Source: [`docs/diagrams/c4-context.puml`](docs/diagrams/c4-context.puml).
 
 <details>
 <summary><strong>Live UI</strong> — pizza-store browser view (STOMP WebSocket pushes order-status events)</summary>
@@ -217,7 +203,7 @@ Tests use [Testcontainers](https://testcontainers.com) with [`io.dapr:testcontai
 ```mermaid
 flowchart LR
   mvn["mvn test (JUnit 5)"] --> tc["Testcontainers runtime"]
-  tc -->|starts| dapr["Dapr sidecar container<br/>(testcontainers-dapr 1.17.3)"]
+  tc -->|starts| dapr["Dapr sidecar container<br/>(testcontainers-dapr 1.17.4)"]
   tc -->|starts| wm["WireMock container<br/>(kitchen-service-stubs.json)"]
   dapr -->|pubsub.in-memory| app["Spring Boot 4 app<br/>@SpringBootTest"]
   wm --> app
