@@ -231,13 +231,13 @@ assert_status_in_range POST "$BASE/order" 400 499 'this is not json'
 # PUBLIC_IP-hardcoded WS bug retired 2026-04-26). Subscribes a STOMP client
 # to /topic/events through the LB-exposed /ws endpoint, places a fresh
 # order, and asserts at least one MESSAGE frame arrives. Skipped when
-# `websocat` isn't on PATH (mise installs `cargo:websocat`; bare hosts
+# `websocat` isn't on PATH (mise installs `aqua:vi/websocat`; bare hosts
 # without mise won't have it — soft-skip rather than fail to keep the
 # script portable across local debugging contexts).
 echo ""
 echo "=== WebSocket broadcast assertion ==="
 if ! command -v websocat >/dev/null 2>&1; then
-  echo "SKIP: websocat not on PATH (run 'mise install' to provision it). Add 'cargo:websocat' is in .mise.toml."
+  echo "SKIP: websocat not on PATH (run 'mise install' to provision it — pinned as 'aqua:vi/websocat' in .mise.toml)."
 else
   WS_LOG=$(mktemp)
   # STOMP CONNECT then SUBSCRIBE; sleep keeps the connection open while the
