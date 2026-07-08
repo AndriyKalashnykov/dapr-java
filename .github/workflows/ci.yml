@@ -631,6 +631,58 @@ jobs:
         path: /tmp/e2e-shared-diag/
         retention-days: 7
 
+  # Runtime-verifies the PROD backend manifests (k8s/kafka.yaml + k8s/postgres.yaml,
+  # OFFICIAL images — the withdrawn-Bitnami replacements) end-to-end: deploys Kafka +
+  # PostgreSQL + the PROD Dapr components (statestore=PostgreSQL, pubsub=Kafka) instead
+  # of the hermetic redis the default `e2e` job uses, then runs the full suite. Gated
+  # to the weekly schedule + workflow_dispatch only — a second full KinD e2e off the
+  # per-PR critical path (`make k8s-validate` parse-checks the manifests on every push).
+  e2e-prod-backends:
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+    - name: Cache Maven packages
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
+
+    # mise provides Maven + kind + kubectl + helm (pinned in .mise.toml).
+    - name: Install mise
+      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      with:
+        install: true
+        cache: true
+
+    - name: End-to-end tests (Kafka + PostgreSQL backends)
+      run: make e2e-prod-backends
+
+    - name: Collect diagnostics on failure
+      if: failure()
+      run: |
+        mkdir -p /tmp/e2e-prod-diag
+        NS=$(make -s print-k8s-namespace)
+        kubectl get pods -A -o wide > /tmp/e2e-prod-diag/pods.txt 2>&1 || true
+        kubectl get events -A --sort-by=.lastTimestamp > /tmp/e2e-prod-diag/events.txt 2>&1 || true
+        for app in pizza-store pizza-kitchen pizza-delivery postgresql kafka; do \
+          kubectl -n "$NS" logs -l app=$app --all-containers=true --tail=500 > /tmp/e2e-prod-diag/$app.log 2>&1 || true; \
+        done
+
+    - name: Upload e2e-prod-backends diagnostics
+      if: ${{ failure() && vars.ACT != 'true' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: e2e-prod-backends-diagnostics
+        path: /tmp/e2e-prod-diag/
+        retention-days: 7
+
   # First-party OCI image publish with pre-push hardening gates. Triggers
   # only on v* tag pushes and only after every validation job is green.
   # This job does NOT rebuild the image — it reuses the exact image the

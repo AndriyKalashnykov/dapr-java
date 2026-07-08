@@ -1,0 +1,91 @@
+---
+# PostgreSQL backing store for the Dapr state-store component (k8s/statestore.yaml,
+# type state.postgresql). Plain manifest against the OFFICIAL postgres image —
+# NOT a Bitnami chart (the bitnami/* catalog was withdrawn Aug 2025 and its pinned
+# image tags ImagePullBackOff). Single pod, ephemeral storage (emptyDir) — a demo/
+# e2e backend, not a production HA database. The `postgresql` Service name + user/
+# password/db below are coupled to statestore.yaml's connectionString.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+type: Opaque
+stringData:
+  # Demo credential — matches k8s/statestore.yaml's connectionString
+  # (host=postgresql user=postgres password=postgres database=dapr). Not a real
+  # secret; a real deployment injects this from a secret manager.
+  POSTGRES_PASSWORD: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  labels:
+    app: postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+  template:
+    metadata:
+      labels:
+        app: postgresql
+    spec:
+      # Official postgres image's `postgres` user is uid/gid 70 (verified against
+      # postgres:17-alpine). Running AS that user lets the entrypoint run initdb
+      # directly (no root/gosu step), so runAsNonRoot + readOnlyRootFilesystem work.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+      containers:
+        - name: postgresql
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_DB
+              value: dapr
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          ports:
+            - containerPort: 5432
+          # readOnlyRootFilesystem: everything postgres writes goes to emptyDir mounts.
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: run,  mountPath: /var/run/postgresql }
+            - { name: tmp,  mountPath: /tmp }
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "dapr"]
+            initialDelaySeconds: 5
+            periodSeconds: 3
+          resources:
+            limits:   { cpu: "500m", memory: "256Mi" }
+            requests: { cpu: "50m",  memory: "64Mi" }
+      volumes:
+        - { name: data, emptyDir: {} }
+        - { name: run,  emptyDir: {} }
+        - { name: tmp,  emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+spec:
+  selector:
+    app: postgresql
+  ports:
+    - port: 5432
+      targetPort: 5432

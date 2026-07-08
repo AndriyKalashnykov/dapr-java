@@ -1,0 +1,92 @@
+---
+# Kafka backing broker for the Dapr pub/sub component (k8s/pubsub.yaml,
+# type pubsub.kafka, brokers=kafka:9092). Plain manifest against the OFFICIAL
+# apache/kafka image (KRaft single-node, no ZooKeeper) — NOT a Bitnami chart
+# (the bitnami/* catalog was withdrawn Aug 2025). Single pod, ephemeral storage
+# — a demo/e2e broker, not a production cluster.
+#
+# The `kafka` Service name + :9092 are coupled to pubsub.yaml's brokers value.
+# advertised.listeners MUST be kafka:9092 (the Service DNS) so the Dapr sidecar,
+# which dials kafka:9092, gets a routable address back from the broker.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      # apache/kafka runs as uid/gid 1000 (appuser) by default (verified).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: kafka
+          image: apache/kafka:3.9.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            # readOnlyRootFilesystem works with the emptyDir mounts below: the
+            # apache/kafka entrypoint writes GC logs to /opt/kafka/logs and the
+            # merged server.properties under /opt/kafka/config + /mnt/shared/config,
+            # and the KRaft data lives in /tmp. All verified against apache/kafka:3.9.1.
+          env:
+            - { name: KAFKA_NODE_ID, value: "1" }
+            - { name: KAFKA_PROCESS_ROLES, value: "broker,controller" }
+            - { name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@localhost:9093" }
+            - { name: KAFKA_LISTENERS, value: "PLAINTEXT://:9092,CONTROLLER://:9093" }
+            - { name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka:9092" }
+            - { name: KAFKA_CONTROLLER_LISTENER_NAMES, value: "CONTROLLER" }
+            - { name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT" }
+            - { name: KAFKA_INTER_BROKER_LISTENER_NAME, value: "PLAINTEXT" }
+            - { name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1" }
+            - { name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR, value: "1" }
+            - { name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR, value: "1" }
+            - { name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS, value: "0" }
+            # Dapr publishes to topic `topic`; let the broker create it on first use.
+            - { name: KAFKA_AUTO_CREATE_TOPICS_ENABLE, value: "true" }
+            - { name: KAFKA_LOG_DIRS, value: "/tmp/kraft-combined-logs" }
+          ports:
+            - containerPort: 9092
+          # readOnlyRootFilesystem: all runtime writes go to emptyDir mounts.
+          volumeMounts:
+            - { name: data,          mountPath: /tmp }
+            - { name: kafka-logs,    mountPath: /opt/kafka/logs }
+            - { name: kafka-config,  mountPath: /opt/kafka/config }
+            - { name: shared-config, mountPath: /mnt/shared/config }
+          readinessProbe:
+            tcpSocket: { port: 9092 }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            limits:   { cpu: "1000m", memory: "1Gi" }
+            requests: { cpu: "100m",  memory: "256Mi" }
+      volumes:
+        - { name: data,          emptyDir: {} }
+        - { name: kafka-logs,    emptyDir: {} }
+        - { name: kafka-config,  emptyDir: {} }
+        - { name: shared-config, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+spec:
+  selector:
+    app: kafka
+  ports:
+    - port: 9092
+      targetPort: 9092
