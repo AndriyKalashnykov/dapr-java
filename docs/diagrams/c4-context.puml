@@ -1,5 +1,10 @@
 @startuml c4-context
-!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.13.0/C4_Context.puml
+' C4-PlantUML vendored locally under docs/diagrams/C4-PlantUML/ (pinned v2.13.0).
+' `make diagrams` passes -DRELATIVE_INCLUDE=. so the vendored files resolve their
+' internal !includes locally — NO raw.githubusercontent.com fetch at render time
+' (which 429-rate-limits shared CI IPs). A direct `plantuml` render without that
+' flag falls back to the remote URL gracefully. Re-vendor: make vendor-diagrams.
+!include C4-PlantUML/C4_Context.puml
 !include _skinparam.iuml
 
 ' Render left-to-right so the 3-element context reads as a landscape hero

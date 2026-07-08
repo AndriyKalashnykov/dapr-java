@@ -123,6 +123,15 @@ DIAGRAM_DIR := docs/diagrams
 DIAGRAM_SRC := $(wildcard $(DIAGRAM_DIR)/*.puml)
 DIAGRAM_OUT := $(patsubst $(DIAGRAM_DIR)/%.puml,$(DIAGRAM_DIR)/out/%.png,$(DIAGRAM_SRC))
 
+# C4-PlantUML stdlib is VENDORED under $(DIAGRAM_DIR)/C4-PlantUML/ so `make diagrams`
+# renders fully offline — no raw.githubusercontent.com fetch at render time, which
+# 429-rate-limits shared CI IPs and flaked `diagrams-check`. The render passes
+# -DRELATIVE_INCLUDE=. so the vendored files resolve their internal !includes
+# locally. NOT Renovate-tracked (a bump the bot can't re-vendor+re-render would be a
+# standing red PR); re-download on a version bump with `make vendor-diagrams`.
+C4_PLANTUML_VERSION := v2.13.0
+DIAGRAM_C4LIB := $(wildcard $(DIAGRAM_DIR)/C4-PlantUML/*.puml)
+
 # === KinD cluster ===
 KIND_CLUSTER_NAME := $(APP_NAME)
 KIND_CONTEXT := kind-$(KIND_CLUSTER_NAME)
@@ -301,17 +310,28 @@ $(PLANTUML_STAMP):
 	@rm -f $(DIAGRAM_DIR)/out/.plantuml-*.stamp
 	@touch $@
 
-$(DIAGRAM_DIR)/out/%.png: $(DIAGRAM_DIR)/%.puml $(DIAGRAM_DIR)/_skinparam.iuml $(PLANTUML_STAMP)
+$(DIAGRAM_DIR)/out/%.png: $(DIAGRAM_DIR)/%.puml $(DIAGRAM_DIR)/_skinparam.iuml $(DIAGRAM_C4LIB) $(PLANTUML_STAMP)
 	@mkdir -p $(DIAGRAM_DIR)/out
 	@docker run --rm -u $$(id -u):$$(id -g) \
 		-v "$(CURDIR)/$(DIAGRAM_DIR):/work" -w /work \
 		-e HOME=/tmp -e _JAVA_OPTIONS=-Duser.home=/tmp \
 		plantuml/plantuml:$(PLANTUML_VERSION) \
-		-tpng -o out $(notdir $<)
+		-DRELATIVE_INCLUDE=. -tpng -o out $(notdir $<)
 
 #diagrams-clean: @ Remove rendered diagram artefacts
 diagrams-clean:
 	@rm -rf $(DIAGRAM_DIR)/out
+
+#vendor-diagrams: @ (manual, needs network) Re-download the vendored C4-PlantUML $(C4_PLANTUML_VERSION) stdlib into docs/diagrams/C4-PlantUML/
+vendor-diagrams:
+	@mkdir -p $(DIAGRAM_DIR)/C4-PlantUML
+	@for f in C4 C4_Context C4_Container C4_Deployment; do \
+		echo "  fetching $$f.puml @ $(C4_PLANTUML_VERSION)"; \
+		curl -fsSL --retry 5 --retry-delay 3 \
+			"https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/$(C4_PLANTUML_VERSION)/$$f.puml" \
+			-o $(DIAGRAM_DIR)/C4-PlantUML/$$f.puml || { echo "ERROR: failed to fetch $$f.puml"; exit 1; }; \
+	done
+	@echo "Vendored C4-PlantUML $(C4_PLANTUML_VERSION); re-render with 'make diagrams' and commit the PNGs + vendored files."
 
 #diagrams-check: @ Verify committed diagrams match current source (CI drift check)
 diagrams-check: diagrams
