@@ -1,5 +1,5 @@
 [![CI](https://github.com/AndriyKalashnykov/dapr-java/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AndriyKalashnykov/dapr-java/actions/workflows/ci.yml)
-[![Visitors](https://visitor-badge.laobi.icu/badge?page_id=AndriyKalashnykov.dapr-java)](https://github.com/AndriyKalashnykov/dapr-java)
+[![Visitors](https://visitor-badge.laobi.icu/badge?page_id=AndriyKalashnykov.dapr-java&left_color=%23555555&right_color=%234c1&left_text=visitors)](https://github.com/AndriyKalashnykov/dapr-java)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Renovate enabled](https://img.shields.io/badge/renovate-enabled-brightgreen.svg)](https://app.renovatebot.com/dashboard#github/AndriyKalashnykov/dapr-java)
 
