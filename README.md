@@ -155,7 +155,7 @@ sequenceDiagram
 
 <img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="100%">
 
-- Three pods in the `default` namespace, one per service (`pizza-store`, `pizza-kitchen`, `pizza-delivery`), each running a single replica with matching `dapr.io/app-id` annotations (`pizza-store`, `kitchen-service`, `delivery-service`).
+- Three pods in the `pizza-store` namespace (configurable via `K8S_NAMESPACE`, default `pizza-store` — never `default`), one per service (`pizza-store`, `pizza-kitchen`, `pizza-delivery`), each running a single replica with matching `dapr.io/app-id` annotations (`pizza-store`, `kitchen-service`, `delivery-service`).
 - Each pod co-locates the Spring Boot app container with a Dapr sidecar injected via the `dapr.io/enabled` annotation. Cross-pod service invocation flows app → local sidecar → remote sidecar → remote app over mTLS HTTP/gRPC; apps never address each other directly.
 - `pizza-store` is exposed through a `Service` of type `LoadBalancer`. On KinD that IP is provisioned by [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) (host-side controller, no in-cluster MetalLB); in production the cloud LB controller fills the same role. Service port 80 bridges to container port 8080.
 - The Dapr control plane (`dapr-operator`, `placement`, `sentry`, `injector`) runs in the `dapr-system` namespace via the official Helm chart (1.17.7).
@@ -249,8 +249,16 @@ helm upgrade --install dapr dapr/dapr \
 ```
 
 ```bash
+# App namespace (never `default`; matches the Makefile K8S_NAMESPACE default).
+# Apps, Dapr components, and backing services all live here so the manifests'
+# bare service names (redis, kafka, postgresql, jaeger) resolve in-namespace.
+kubectl create namespace pizza-store --dry-run=client -o yaml | kubectl apply -f -
+```
+
+```bash
 # Kafka (PubSub backend in production)
 helm install kafka oci://registry-1.docker.io/bitnamicharts/kafka --version 22.1.5 \
+  --namespace pizza-store \
   --set "provisioning.topics[0].name=events-topic" \
   --set "provisioning.topics[0].partitions=1" \
   --set "persistence.size=1Gi"
@@ -258,9 +266,10 @@ helm install kafka oci://registry-1.docker.io/bitnamicharts/kafka --version 22.1
 
 ```bash
 # PostgreSQL (State Store backend in production)
-kubectl apply -f k8s/pizza-init-sql-cm.yaml
+kubectl apply -n pizza-store -f k8s/pizza-init-sql-cm.yaml
 
 helm install postgresql oci://registry-1.docker.io/bitnamicharts/postgresql --version 12.5.7 \
+  --namespace pizza-store \
   --set "image.debug=true" \
   --set "primary.initdb.user=postgres" \
   --set "primary.initdb.password=postgres" \
@@ -273,13 +282,13 @@ helm install postgresql oci://registry-1.docker.io/bitnamicharts/postgresql --ve
 
 ```bash
 # Application manifests
-kubectl apply -f k8s/
+kubectl apply -n pizza-store -f k8s/
 ```
 
 Access the application:
 
 ```bash
-kubectl port-forward svc/pizza-store 8080:80
+kubectl port-forward -n pizza-store svc/pizza-store 8080:80
 ```
 
 Open [`http://localhost:8080`](http://localhost:8080).

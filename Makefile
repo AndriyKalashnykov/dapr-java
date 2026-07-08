@@ -135,7 +135,17 @@ DIAGRAM_C4LIB := $(wildcard $(DIAGRAM_DIR)/C4-PlantUML/*.puml)
 # === KinD cluster ===
 KIND_CLUSTER_NAME := $(APP_NAME)
 KIND_CONTEXT := kind-$(KIND_CLUSTER_NAME)
-KUBECTL := kubectl --context $(KIND_CONTEXT)
+# Application namespace — apps, Dapr components, and e2e backing services (redis,
+# jaeger) all deploy HERE, not the `default` namespace. Single source of truth:
+# k8s manifests are namespace-agnostic (bare service names, no `namespace:` field)
+# and applied with `-n $(K8S_NAMESPACE)`, so this var is the only place the
+# namespace lives. Override via `.env` (`-include .env` above) or on the CLI:
+# `make e2e K8S_NAMESPACE=foo`.
+K8S_NAMESPACE ?= pizza-store
+KUBECTL_CLUSTER := kubectl --context $(KIND_CONTEXT)
+# Namespace-scoped kubectl for all app resources. KUBECTL_CLUSTER is the
+# un-scoped form used only for cluster-scoped ops (namespace create/delete).
+KUBECTL := $(KUBECTL_CLUSTER) -n $(K8S_NAMESPACE)
 HELM := helm --kube-context $(KIND_CONTEXT)
 # Space-separated list of services (matches Maven module dirs and k8s/ filenames)
 SERVICES := pizza-store pizza-kitchen pizza-delivery
@@ -532,6 +542,10 @@ coverage-open: deps-check
 		fi; \
 	done
 
+#print-k8s-namespace: @ Print the deploy namespace ($(K8S_NAMESPACE)) — single source of truth for CI/scripts that hand-roll kubectl outside $(KUBECTL)
+print-k8s-namespace:
+	@echo $(K8S_NAMESPACE)
+
 #print-deps-updates: @ Print project dependencies updates
 print-deps-updates: deps-check
 	@mvn -B org.codehaus.mojo:versions-maven-plugin:display-dependency-updates
@@ -647,6 +661,8 @@ kind-create: deps-check
 
 #kind-deploy: @ Build + scan app images, load into KinD, apply manifests, wait for rollout
 kind-deploy: kind-create image-build image-scan
+	@echo "--- Ensuring namespace $(K8S_NAMESPACE) ---"
+	@$(KUBECTL_CLUSTER) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_CLUSTER) apply -f -
 	@echo "--- Loading images into KinD cluster ---"
 	@for svc in $(SERVICES); do \
 		kind load docker-image $$svc:$(E2E_IMAGE_TAG) \
@@ -694,6 +710,8 @@ kind-deploy: kind-create image-build image-scan
 # Service is the same shape as the default topology, so e2e/e2e-test.sh runs
 # against it unchanged. See k8s-dapr-shared/README.md for the topology rationale.
 k8s-shared-deploy: deps-check
+	@echo "--- Ensuring namespace $(K8S_NAMESPACE) ---"
+	@$(KUBECTL_CLUSTER) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_CLUSTER) apply -f -
 	@echo "--- Loading images into KinD cluster (if not present) ---"
 	@for svc in $(SERVICES); do \
 		kind load docker-image $$svc:$(E2E_IMAGE_TAG) --name $(KIND_CLUSTER_NAME) 2>&1 | tail -1; \
@@ -735,13 +753,13 @@ k8s-shared-deploy: deps-check
 	@# DAPR_SENTRY_ADDRESS=...:443).
 	@echo "--- Installing shared Dapr sidecars (dapr-shared-chart $(DAPR_SHARED_CHART_VERSION), daprd $(DAPR_HELM_VERSION)) per app-id ---"
 	@for appid in pizza-store kitchen-service delivery-service; do \
-		echo "  - $$appid-dapr (app-channel: $$appid.default.svc.cluster.local:80)"; \
+		echo "  - $$appid-dapr (app-channel: $$appid.$(K8S_NAMESPACE).svc.cluster.local:80)"; \
 		$(HELM) upgrade --install "$$appid-shared" \
 			oci://registry-1.docker.io/daprio/dapr-shared-chart \
 			--version "$(DAPR_SHARED_CHART_VERSION)" \
-			--namespace default \
+			--namespace $(K8S_NAMESPACE) --create-namespace \
 			--set shared.appId="$$appid" \
-			--set shared.remoteURL="$$appid.default.svc.cluster.local" \
+			--set shared.remoteURL="$$appid.$(K8S_NAMESPACE).svc.cluster.local" \
 			--set shared.remotePort=80 \
 			--set shared.strategy=deployment \
 			--set shared.daprd.image.tag="$(DAPR_HELM_VERSION)" \
@@ -756,13 +774,14 @@ k8s-shared-deploy: deps-check
 #k8s-shared-undeploy: @ Remove the alternate shared-sidecar topology from the cluster
 k8s-shared-undeploy: deps-check
 	@for appid in pizza-store kitchen-service delivery-service; do \
-		$(HELM) uninstall "$$appid-shared" --namespace default --ignore-not-found 2>/dev/null || true; \
+		$(HELM) uninstall "$$appid-shared" --namespace $(K8S_NAMESPACE) --ignore-not-found 2>/dev/null || true; \
 	done
 	@$(KUBECTL) delete -f k8s-dapr-shared/apps.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/subscription.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/components-e2e.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/jaeger-e2e.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/redis-e2e.yaml --ignore-not-found 2>/dev/null || true
+	@$(KUBECTL_CLUSTER) delete namespace $(K8S_NAMESPACE) --ignore-not-found 2>/dev/null || true
 
 #kind-undeploy: @ Remove app and Dapr components from KinD cluster
 kind-undeploy: deps-check
@@ -773,6 +792,7 @@ kind-undeploy: deps-check
 	@$(KUBECTL) delete -f k8s/components-e2e.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/jaeger-e2e.yaml --ignore-not-found 2>/dev/null || true
 	@$(KUBECTL) delete -f k8s/redis-e2e.yaml --ignore-not-found 2>/dev/null || true
+	@$(KUBECTL_CLUSTER) delete namespace $(K8S_NAMESPACE) --ignore-not-found 2>/dev/null || true
 
 #kind-destroy: @ Delete the KinD cluster, stop cloud-provider-kind, prune kindccm-* orphans
 kind-destroy: deps-check
@@ -853,7 +873,7 @@ release: pre-release
 	env-check clean build test integration-test lint format format-check \
 	trivy-fs trivy-config secrets deps-prune deps-prune-check check-java-alignment check-env check-ports static-check run \
 	ci ci-run cve-check cve-check-selftest coverage-generate coverage-check coverage-open \
-	print-deps-updates update-deps renovate-validate \
+	print-k8s-namespace print-deps-updates update-deps renovate-validate \
 	image-build image-scan image-test kind-create kind-deploy kind-undeploy kind-destroy \
 	kind-up kind-down e2e e2e-shared pre-release release \
 	diagrams diagrams-clean diagrams-check mermaid-lint k8s-validate \

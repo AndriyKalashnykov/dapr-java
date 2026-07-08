@@ -8,7 +8,7 @@ This directory holds an **alternate Kubernetes deployment topology** that runs t
 |---|---|---|
 | Dapr sidecar | One per pod, injected via `dapr.io/enabled: "true"` annotation | Standalone `Deployment`s — one per app-id (`pizza-store-dapr`, `kitchen-service-dapr`, `delivery-service-dapr`) — each fronted by its own ClusterIP `Service` |
 | Sidecar count for 3 replicas of all 3 services | 9 sidecars (one per pod) | 3 sidecars total (one per app-id) |
-| App → Dapr endpoint | `localhost:3500` (in-pod) | `http://<app-id>-dapr.default.svc.cluster.local:3500` (cross-pod via Service VIP) |
+| App → Dapr endpoint | `localhost:3500` (in-pod) | `http://<app-id>-dapr:3500` (cross-pod via Service VIP, in-namespace) |
 | Pod-level Dapr annotations | `dapr.io/app-id`, `dapr.io/app-port`, `dapr.io/enabled` | All commented out — apps reach Dapr via `DAPR_HTTP_ENDPOINT` / `DAPR_GRPC_ENDPOINT` env vars instead |
 | mTLS between app and sidecar | In-pod loopback (no TLS needed) | Cross-pod — depends on cluster network policies + Dapr mTLS config |
 
