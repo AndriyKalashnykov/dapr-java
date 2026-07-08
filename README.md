@@ -153,7 +153,7 @@ sequenceDiagram
 
 ### Deployment View
 
-<img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="560">
+<img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment diagram (Kubernetes)" width="100%">
 
 - Three pods in the `default` namespace, one per service (`pizza-store`, `pizza-kitchen`, `pizza-delivery`), each running a single replica with matching `dapr.io/app-id` annotations (`pizza-store`, `kitchen-service`, `delivery-service`).
 - Each pod co-locates the Spring Boot app container with a Dapr sidecar injected via the `dapr.io/enabled` annotation. Cross-pod service invocation flows app → local sidecar → remote sidecar → remote app over mTLS HTTP/gRPC; apps never address each other directly.
