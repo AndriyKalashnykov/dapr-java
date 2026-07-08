@@ -54,6 +54,12 @@ spec:
               value: postgres
             - name: POSTGRES_DB
               value: dapr
+            # PGDATA must be a SUBDIR of the emptyDir mount, not the mount root:
+            # the emptyDir is root-owned (fsGroup 70 only makes it group-writable),
+            # and postgres (uid 70) can't chmod 0700 a dir it doesn't own. With a
+            # subdir, postgres creates + OWNS pgdata/, so initdb's chmod succeeds.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
