@@ -56,7 +56,7 @@ make kind-down     # tear everything down
 
 `make kind-up` chains `kind-create` + `image-build` + `kind-deploy` (~3-5 min on a warm cache). See [Kubernetes Deployment](#kubernetes-deployment) for granular targets.
 
-Every operator-tunable value (ports, the OTLP endpoint) is documented in the committed [`.env.example`](.env.example) with its default. `.env` (gitignored) overrides them; `make` also reads `.env` via `-include`. Fixed host-port binds (`make run` → `SERVER_PORT`, `make e2e` → `JAEGER_QUERY_PORT`) are guarded by `make check-ports`, which fails early and names the process holding a bound port.
+Every operator-tunable value (ports, the OTLP endpoint, the Kubernetes deploy namespace `K8S_NAMESPACE` — default `pizza-store`) is documented in the committed [`.env.example`](.env.example) with its default. `.env` (gitignored) overrides them; `make` also reads `.env` via `-include` (e.g. `make e2e K8S_NAMESPACE=foo`). Fixed host-port binds (`make run` → `SERVER_PORT`, `make e2e` → `JAEGER_QUERY_PORT`) are guarded by `make check-ports`, which fails early and names the process holding a bound port.
 
 ### Single-service development loop
 
@@ -256,29 +256,19 @@ kubectl create namespace pizza-store --dry-run=client -o yaml | kubectl apply -f
 ```
 
 ```bash
-# Kafka (PubSub backend in production)
-helm install kafka oci://registry-1.docker.io/bitnamicharts/kafka --version 22.1.5 \
-  --namespace pizza-store \
-  --set "provisioning.topics[0].name=events-topic" \
-  --set "provisioning.topics[0].partitions=1" \
-  --set "persistence.size=1Gi"
+# Kafka (PubSub backend) + PostgreSQL (State Store backend) — plain manifests
+# against the OFFICIAL images (apache/kafka KRaft single-node; postgres:17-alpine),
+# hardened (non-root, dropped caps), ephemeral storage. These replace the former
+# Bitnami charts, whose public catalog was withdrawn Aug 2025 (pinned bitnami/*
+# tags now ImagePullBackOff). Both are runtime-verified by the weekly + dispatch
+# `e2e-prod-backends` CI job (`make e2e-prod-backends`).
+kubectl apply -n pizza-store -f k8s/kafka.yaml
+kubectl apply -n pizza-store -f k8s/postgres.yaml
 ```
 
-```bash
-# PostgreSQL (State Store backend in production)
-kubectl apply -n pizza-store -f k8s/pizza-init-sql-cm.yaml
-
-helm install postgresql oci://registry-1.docker.io/bitnamicharts/postgresql --version 12.5.7 \
-  --namespace pizza-store \
-  --set "image.debug=true" \
-  --set "primary.initdb.user=postgres" \
-  --set "primary.initdb.password=postgres" \
-  --set "primary.initdb.scriptsConfigMap=pizza-init-sql" \
-  --set "global.postgresql.auth.postgresPassword=postgres" \
-  --set "primary.persistence.size=1Gi"
-```
-
-> **Note:** Bitnami chart images moved behind a paywall in mid-2025. If `bitnamicharts` pulls fail, substitute `bitnamilegacysecure` or migrate to vendor-neutral charts. Chart versions above are the last free-tier releases verified with this project.
+> **Note:** these are demo/e2e-grade single-pod backends (ephemeral storage, a demo
+> password). A production deployment substitutes an HA Kafka/PostgreSQL (operator or
+> managed service) reachable at the same `kafka` / `postgresql` Service names.
 
 ```bash
 # Application manifests

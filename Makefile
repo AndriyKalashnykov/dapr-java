@@ -816,6 +816,62 @@ kind-up: kind-deploy
 #kind-down: @ Alias for kind-undeploy + kind-destroy (full teardown)
 kind-down: kind-undeploy kind-destroy
 
+#kind-deploy-prod-backends: @ Deploy Kafka + PostgreSQL (official images) + the PROD Dapr components + apps to KinD (building block of e2e-prod-backends)
+# Mirrors kind-deploy but swaps the hermetic redis backend for the real Kafka +
+# PostgreSQL official-image manifests (k8s/kafka.yaml, k8s/postgres.yaml) and the
+# PROD Dapr components (k8s/statestore.yaml=PostgreSQL, k8s/pubsub.yaml=Kafka)
+# instead of k8s/components-e2e.yaml (redis). The app manifests are unchanged —
+# same component names (kvstore/pubsub), different backing store — so this proves
+# the withdrawn-Bitnami replacement manifests actually run end-to-end.
+kind-deploy-prod-backends: kind-create image-build image-scan
+	@echo "--- Ensuring namespace $(K8S_NAMESPACE) ---"
+	@$(KUBECTL_CLUSTER) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_CLUSTER) apply -f -
+	@echo "--- Loading images into KinD cluster ---"
+	@for svc in $(SERVICES); do \
+		kind load docker-image $$svc:$(E2E_IMAGE_TAG) --name $(KIND_CLUSTER_NAME); \
+	done
+	@echo "--- Deploying PostgreSQL + Kafka (official images — the PROD backends, not redis) ---"
+	@$(KUBECTL) apply -f k8s/postgres.yaml
+	@$(KUBECTL) apply -f k8s/kafka.yaml
+	@$(KUBECTL) rollout status deployment/postgresql --timeout=$(ROLLOUT_TIMEOUT)
+	@$(KUBECTL) rollout status deployment/kafka --timeout=$(APP_ROLLOUT_TIMEOUT)
+	@echo "--- Deploying Jaeger (OTLP collector + query API) ---"
+	@$(KUBECTL) apply -f k8s/jaeger-e2e.yaml
+	@$(KUBECTL) rollout status deployment/jaeger --timeout=$(ROLLOUT_TIMEOUT)
+	@echo "--- Applying PROD Dapr components (state=PostgreSQL, pubsub=Kafka) + subscriptions ---"
+	@$(KUBECTL) apply -f k8s/statestore.yaml
+	@$(KUBECTL) apply -f k8s/pubsub.yaml
+	@$(KUBECTL) apply -f k8s/subscription.yaml
+	@echo "--- Applying app manifests (with local image overrides) ---"
+	@for svc in $(SERVICES); do \
+		sed -E "s|image: ghcr.io/andriykalashnykov/dapr-java/$$svc:[^[:space:]]+|image: $$svc:$(E2E_IMAGE_TAG)|; \
+			s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|" \
+			k8s/$$svc.yaml | $(KUBECTL) apply -f -; \
+	done
+	@echo "--- Patching pizza-store Service to LoadBalancer ---"
+	@$(KUBECTL) patch svc pizza-store -p '{"spec":{"type":"LoadBalancer"}}'
+	@echo "--- Waiting for rollouts ---"
+	@for svc in pizza-store-deployment pizza-kitchen-deployment pizza-delivery-deployment; do \
+		$(KUBECTL) rollout status deployment/$$svc --timeout=$(APP_ROLLOUT_TIMEOUT); \
+	done
+	@echo "--- Waiting for LoadBalancer IP ---"
+	@for i in $$(seq 1 $(LB_WAIT_ATTEMPTS)); do \
+		ip=$$($(KUBECTL) get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); \
+		if [ -n "$$ip" ]; then echo "pizza-store LoadBalancer IP: $$ip"; exit 0; fi; \
+		sleep $(LB_WAIT_INTERVAL); \
+	done; \
+	echo "FAIL: pizza-store did not get a LoadBalancer IP"; exit 1
+
+#e2e-prod-backends: @ Run e2e against the PROD backends (Kafka + PostgreSQL official images) — runtime-verifies k8s/{kafka,postgres}.yaml + statestore/pubsub components
+e2e-prod-backends: kind-deploy-prod-backends
+	@$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(E2E_PORTS)"
+	@GATEWAY_IP="$$($(KUBECTL) get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" \
+		KUBECTL="$(KUBECTL)" \
+		GATEWAY_PORT="$(GATEWAY_PORT)" \
+		JAEGER_QUERY_HOST="$(JAEGER_QUERY_HOST)" \
+		JAEGER_QUERY_PORT="$(JAEGER_QUERY_PORT)" \
+		e2e/e2e-test.sh
+
 #e2e: @ Run end-to-end tests against the deployed KinD cluster
 e2e: kind-up
 	@$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(E2E_PORTS)"
@@ -877,4 +933,5 @@ release: pre-release
 	image-build image-scan image-test kind-create kind-deploy kind-undeploy kind-destroy \
 	kind-up kind-down e2e e2e-shared pre-release release \
 	diagrams diagrams-clean diagrams-check mermaid-lint k8s-validate \
-	k8s-shared-deploy k8s-shared-undeploy
+	k8s-shared-deploy k8s-shared-undeploy \
+	kind-deploy-prod-backends e2e-prod-backends
