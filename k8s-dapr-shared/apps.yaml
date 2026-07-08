@@ -39,9 +39,9 @@ spec:
         - name: MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT
           value: http://jaeger:4318/v1/traces
         - name: DAPR_HTTP_ENDPOINT
-          value: http://delivery-service-dapr.default.svc.cluster.local:3500
+          value: http://delivery-service-dapr:3500
         - name: DAPR_GRPC_ENDPOINT
-          value: http://delivery-service-dapr.default.svc.cluster.local:50001
+          value: http://delivery-service-dapr:50001
         - name: PUB_SUB_NAME
           value: pubsub     
         - name: PUB_SUB_TOPIC
@@ -128,9 +128,9 @@ spec:
         - name: PUB_SUB_TOPIC
           value: topic
         - name: DAPR_HTTP_ENDPOINT
-          value: http://kitchen-service-dapr.default.svc.cluster.local:3500
+          value: http://kitchen-service-dapr:3500
         - name: DAPR_GRPC_ENDPOINT
-          value: http://kitchen-service-dapr.default.svc.cluster.local:50001   
+          value: http://kitchen-service-dapr:50001   
         livenessProbe:
           httpGet:
             path: /actuator/health
@@ -211,9 +211,9 @@ spec:
         - name: MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT
           value: http://jaeger:4318/v1/traces
         - name: DAPR_HTTP_ENDPOINT
-          value: http://pizza-store-dapr.default.svc.cluster.local:3500
+          value: http://pizza-store-dapr:3500
         - name: DAPR_GRPC_ENDPOINT
-          value: http://pizza-store-dapr.default.svc.cluster.local:50001
+          value: http://pizza-store-dapr:50001
         - name: STATE_STORE_NAME
           value: kvstore
         # Maps to Spring placeholder ${cors.allowed-origins} read by @CrossOrigin
