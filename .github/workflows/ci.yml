@@ -510,7 +510,11 @@ jobs:
     - name: Resolve LoadBalancer IP
       id: lb
       run: |
-        IP=$(kubectl get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        # The app Service lives in $K8S_NAMESPACE (not `default`). This kubectl
+        # is hand-rolled OUTSIDE `make e2e`, so it MUST scope to that namespace —
+        # sourced from the Makefile (single source of truth), never hardcoded.
+        NS=$(make -s print-k8s-namespace)
+        IP=$(kubectl -n "$NS" get svc pizza-store -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
         echo "url=http://${IP}/" >> "$GITHUB_OUTPUT"
 
     - name: ZAP baseline scan
@@ -547,10 +551,11 @@ jobs:
       if: failure()
       run: |
         mkdir -p /tmp/e2e-diag
+        NS=$(make -s print-k8s-namespace)
         kubectl get pods -A -o wide > /tmp/e2e-diag/pods.txt 2>&1 || true
         kubectl get events -A --sort-by=.lastTimestamp > /tmp/e2e-diag/events.txt 2>&1 || true
         for svc in pizza-store-service pizza-kitchen-service pizza-delivery-service; do \
-          kubectl logs -l app=$svc --all-containers=true --tail=500 > /tmp/e2e-diag/$svc.log 2>&1 || true; \
+          kubectl -n "$NS" logs -l app=$svc --all-containers=true --tail=500 > /tmp/e2e-diag/$svc.log 2>&1 || true; \
         done
 
     - name: Upload e2e diagnostics
@@ -610,12 +615,13 @@ jobs:
       if: failure()
       run: |
         mkdir -p /tmp/e2e-shared-diag
+        NS=$(make -s print-k8s-namespace)
         kubectl get pods -A -o wide > /tmp/e2e-shared-diag/pods.txt 2>&1 || true
         kubectl get events -A --sort-by=.lastTimestamp > /tmp/e2e-shared-diag/events.txt 2>&1 || true
         for svc in pizza-store-service pizza-kitchen-service pizza-delivery-service; do \
-          kubectl logs -l app=$svc --all-containers=true --tail=500 > /tmp/e2e-shared-diag/$svc.log 2>&1 || true; \
+          kubectl -n "$NS" logs -l app=$svc --all-containers=true --tail=500 > /tmp/e2e-shared-diag/$svc.log 2>&1 || true; \
         done
-        kubectl logs -l app.kubernetes.io/name=dapr-shared-chart --all-containers=true --tail=500 > /tmp/e2e-shared-diag/dapr-shared.log 2>&1 || true
+        kubectl -n "$NS" logs -l app.kubernetes.io/name=dapr-shared-chart --all-containers=true --tail=500 > /tmp/e2e-shared-diag/dapr-shared.log 2>&1 || true
 
     - name: Upload e2e-shared diagnostics
       if: ${{ failure() && vars.ACT != 'true' }}

@@ -542,6 +542,10 @@ coverage-open: deps-check
 		fi; \
 	done
 
+#print-k8s-namespace: @ Print the deploy namespace ($(K8S_NAMESPACE)) — single source of truth for CI/scripts that hand-roll kubectl outside $(KUBECTL)
+print-k8s-namespace:
+	@echo $(K8S_NAMESPACE)
+
 #print-deps-updates: @ Print project dependencies updates
 print-deps-updates: deps-check
 	@mvn -B org.codehaus.mojo:versions-maven-plugin:display-dependency-updates
@@ -869,7 +873,7 @@ release: pre-release
 	env-check clean build test integration-test lint format format-check \
 	trivy-fs trivy-config secrets deps-prune deps-prune-check check-java-alignment check-env check-ports static-check run \
 	ci ci-run cve-check cve-check-selftest coverage-generate coverage-check coverage-open \
-	print-deps-updates update-deps renovate-validate \
+	print-k8s-namespace print-deps-updates update-deps renovate-validate \
 	image-build image-scan image-test kind-create kind-deploy kind-undeploy kind-destroy \
 	kind-up kind-down e2e e2e-shared pre-release release \
 	diagrams diagrams-clean diagrams-check mermaid-lint k8s-validate \
