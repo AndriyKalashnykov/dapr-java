@@ -14,7 +14,24 @@ on:
   # which cascades) — a cron run re-testing byte-identical code is pure spend.
   schedule:
     - cron: '0 6 * * 1'
+  # `only` lets you dispatch ONE job instead of the whole workflow. Without it a
+  # manual run fans out to every dispatch-gated job (~65 billed min) — which made
+  # "just re-run the image scan" or "warm the NVD cache" absurdly expensive on a
+  # tight minutes budget.
   workflow_dispatch:
+    inputs:
+      only:
+        description: 'Run only this job (default: everything)'
+        type: choice
+        default: all
+        options:
+          - all
+          - cve-check
+          - image-scan
+          - e2e
+          - e2e-shared
+          - e2e-prod-backends
+          - nvd-cache-refresh
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -106,9 +123,16 @@ jobs:
             # editing the ignore list changes whether e2e passes.
             - '.zap/**'
 
+  # On a `workflow_dispatch` with `only` set, run static-check ONLY when the
+  # selected job actually needs it (cve-check / image-scan depend on it; the
+  # topology e2es and the NVD cache refresh do not).
   static-check:
     needs: [changes]
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
+    if: |
+      !failure() && !cancelled() && needs.changes.outputs.code == 'true' && (
+        github.event_name != 'workflow_dispatch' ||
+        contains(fromJSON('["all","cve-check","image-scan","e2e"]'), inputs.only)
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -144,9 +168,14 @@ jobs:
     - name: Static check
       run: make static-check
 
+  # On a targeted `workflow_dispatch`, build/test are needed only by `e2e`.
   build:
     needs: [changes, static-check]
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
+    if: |
+      !failure() && !cancelled() && needs.changes.outputs.code == 'true' && (
+        github.event_name != 'workflow_dispatch' ||
+        contains(fromJSON('["all","e2e"]'), inputs.only)
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -202,7 +231,11 @@ jobs:
   # produces the merged unit+IT JaCoCo report and gates on the 0.80 threshold.
   test:
     needs: [changes, static-check]
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
+    if: |
+      !failure() && !cancelled() && needs.changes.outputs.code == 'true' && (
+        github.event_name != 'workflow_dispatch' ||
+        contains(fromJSON('["all","e2e"]'), inputs.only)
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -243,6 +276,72 @@ jobs:
         path: '**/target/site/jacoco/'
         retention-days: 14
 
+  # Weekly NVD-database WARMER. Not a gate — it refreshes the cached NVD H2 DB
+  # and analyzes NOTHING (`dependency-check:update-only`), so it CANNOT fail on a
+  # CVE and can never redden `main`.
+  #
+  # Why it must exist: GitHub evicts an Actions cache after 7 days without a HIT,
+  # and `cve-check` now runs on TAG PUSHES ONLY. Unless this repo is tagged more
+  # often than weekly, the NVD cache would therefore ALWAYS be cold at release
+  # time and every release would pay a full ~70-90 min NVD sync. Tag-gating the
+  # GATE was right; it just left the CACHE with nobody to keep it warm. This job
+  # is that somebody: ~2-3 min/week once warm, and tag-time cve-check stays fast.
+  #
+  # `continue-on-error` because a transient NVD outage must not redden the weekly
+  # run — the cache is an optimization, and failing over it would reintroduce the
+  # exact "red Monday for an upstream problem" this rework removed. The script's
+  # update-only path already exits 0 with a ::warning:: on a 503; this is defence
+  # in depth for anything it doesn't classify.
+  nvd-cache-refresh:
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","nvd-cache-refresh"]'), inputs.only))
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # A cold bootstrap (no cache at all) is a full NVD sync: ~70-90 min. Every
+    # subsequent weekly run is an incremental update in ~2-3 min.
+    timeout-minutes: 90
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+    - name: Cache Maven packages
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-maven-
+
+    - name: Install mise
+      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      with:
+        install: true
+        cache: true
+
+    # Same key + path as the `cve-check` job — that is the whole point: this job
+    # SAVES the cache that cve-check RESTORES. If these ever drift apart, the
+    # warmer warms a cache nobody reads and releases go back to cold syncs.
+    - name: Compute NVD cache week
+      id: nvdweek
+      run: echo "week=$(date -u +%Y-%V)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache NVD database
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      with:
+        path: ~/.m2/repository/org/owasp/dependency-check-data
+        key: nvd-db-v2-${{ steps.nvdweek.outputs.week }}
+        restore-keys: nvd-db-v2-
+
+    - name: Refresh NVD database (update-only — no scan, cannot fail on a CVE)
+      if: ${{ !env.ACT }}
+      env:
+        NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        OSS_INDEX_USER: ${{ secrets.OSS_INDEX_USER }}
+        OSS_INDEX_TOKEN: ${{ secrets.OSS_INDEX_TOKEN }}
+      run: make nvd-refresh
+
   cve-check:
     needs: [static-check]
     # TAG-ONLY (plus manual dispatch). Runs on:
@@ -267,7 +366,7 @@ jobs:
     if: |
       !failure() && !cancelled() && (
         (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-        github.event_name == 'workflow_dispatch'
+        (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","cve-check"]'), inputs.only))
       )
     runs-on: ubuntu-latest
     # 90 (not 45): a COLD cache needs a full NVD sync, which measured ~70+ min on
@@ -358,7 +457,7 @@ jobs:
     if: |
       !failure() && !cancelled() && needs.changes.outputs.code == 'true' && (
         (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-        github.event_name == 'workflow_dispatch'
+        (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","image-scan"]'), inputs.only))
       )
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -483,7 +582,7 @@ jobs:
       !failure() && !cancelled() && (
         (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
         (github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'run-e2e') || needs.changes.outputs.e2e == 'true')) ||
-        github.event_name == 'workflow_dispatch'
+        (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","e2e"]'), inputs.only))
       )
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -594,7 +693,9 @@ jobs:
   # Gated to the weekly schedule + workflow_dispatch only — keeps a second full
   # KinD e2e off the per-PR critical path.
   e2e-shared:
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","e2e-shared"]'), inputs.only))
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -657,7 +758,9 @@ jobs:
   # to the weekly schedule + workflow_dispatch only — a second full KinD e2e off the
   # per-PR critical path (`make k8s-validate` parse-checks the manifests on every push).
   e2e-prod-backends:
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","e2e-prod-backends"]'), inputs.only))
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -885,7 +988,7 @@ jobs:
 
   ci-pass:
     if: always()
-    needs: [changes, static-check, build, test, cve-check, image-scan, e2e, e2e-shared, e2e-prod-backends, docker, docker-manifest]
+    needs: [changes, static-check, build, test, cve-check, image-scan, e2e, e2e-shared, e2e-prod-backends, nvd-cache-refresh, docker, docker-manifest]
     timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:
