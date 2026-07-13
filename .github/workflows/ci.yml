@@ -7,9 +7,11 @@ on:
   pull_request:
     branches: [main]
   workflow_call:
-  # Weekly OWASP/NVD scan so new upstream advisories are caught even without
-  # a code push. Monday 06:00 UTC keeps the cve-check job off the critical
-  # path during weekday work hours.
+  # Weekly run of the two alternate-topology KinD e2es (e2e-shared,
+  # e2e-prod-backends) — nothing else exercises them, and they'd otherwise
+  # drift unnoticed. Everything else (static-check/build/test/image-scan/e2e)
+  # is skipped on schedule events (the `changes` job is gated off `schedule`,
+  # which cascades) — a cron run re-testing byte-identical code is pure spend.
   schedule:
     - cron: '0 6 * * 1'
   workflow_dispatch:
@@ -39,6 +41,13 @@ jobs:
   # remains a manual escape hatch for the rare "force-run e2e on a docs
   # change" case.
   changes:
+    # Skipped on the weekly cron: a scheduled run tests code identical to the
+    # last push, so re-running static-check/build/test/image-scan/e2e buys
+    # nothing and costs ~15 billed minutes. Skipping `changes` leaves
+    # `needs.changes.outputs.code` empty, which cascades a skip to every job
+    # gated on `code == 'true'`. The cron's two topology-e2e jobs don't depend
+    # on `changes`, so they still run.
+    if: ${{ github.event_name != 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
@@ -173,46 +182,13 @@ jobs:
           pizza-store/target/*.jar
         retention-days: 1
 
-  # Unit tests only — fast feedback loop. Runs surefire (no Testcontainers
-  # heavy lifting, no Dapr sidecars). Integration tests live in their own job.
+  # Unit + integration tests in ONE job. `make coverage-generate` runs
+  # `mvn verify -P integration-test`, which executes Surefire (unit) AND
+  # Failsafe (Testcontainers-Dapr ITs) in a single reactor — a separate
+  # unit-test job re-ran Surefire from scratch (extra checkout + mise + Maven
+  # compile) for zero added signal, ~3 billed minutes per run. It also
+  # produces the merged unit+IT JaCoCo report and gates on the 0.80 threshold.
   test:
-    needs: [changes, static-check]
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-
-    - name: Checkout
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-    # Java + Maven are provisioned by jdx/mise-action from .mise.toml (single
-    # source of truth; alignment with .java-version + pom.xml is enforced by
-    # `make check-java-alignment`). A dedicated ~/.m2 cache replaces the maven
-    # cache that actions/setup-java used to provide.
-    - name: Cache Maven packages
-      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
-      with:
-        path: ~/.m2/repository
-        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-        restore-keys: ${{ runner.os }}-maven-
-
-    # mise provides Maven (pinned in .mise.toml). See `build` job for rationale.
-    - name: Install mise
-      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-      with:
-        install: true
-        cache: true
-
-    - name: Test
-      run: make test
-
-  # Integration tests via Failsafe + Testcontainers-Dapr. Runs in its own
-  # runner to avoid resource contention with the unit-test job (Dapr sidecars
-  # are memory-hungry and occasionally race their wait strategies under load).
-  # Also produces the merged unit+IT JaCoCo coverage report and gates on the
-  # 0.80 portfolio threshold.
-  integration-test:
     needs: [changes, static-check]
     if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
@@ -241,7 +217,7 @@ jobs:
         install: true
         cache: true
 
-    - name: Integration test
+    - name: Unit + integration tests (merged JaCoCo)
       run: make coverage-generate
 
     - name: Verify coverage threshold
@@ -257,10 +233,20 @@ jobs:
 
   cve-check:
     needs: [static-check]
-    # Gated to cut CI cost on every main push. Runs on:
+    # TAG-ONLY (plus manual dispatch). Runs on:
     #   - tag pushes (release-time gate before shipping)
-    #   - weekly schedule (catches new upstream CVEs in unchanged deps)
-    #   - workflow_dispatch (ad-hoc rescan)
+    #   - workflow_dispatch (ad-hoc rescan / to warm the NVD cache)
+    #
+    # NOT on the weekly schedule any more. The NVD H2 cache key is the ISO week
+    # and GitHub evicts a cache after 7 days without a hit — so a weekly-only job
+    # ALWAYS restored a cold cache (`Cache not found for input keys: nvd-db-v2-*`),
+    # spent its entire budget on a full ~365k-record NVD sync, got killed at
+    # `timeout-minutes` (which reports as `cancelled`, NOT a concurrency cancel),
+    # and therefore never SAVED a cache either. A self-sustaining loop that burned
+    # ~45 min every Monday and never once completed a scan (runs 28775468747 +
+    # 29231100411, both identical). Tag pushes keep the cache warm and are where
+    # the gate actually matters — nothing ships without it.
+    #
     # Skipped under act because the OWASP NVD download is slow and
     # unreliable in local containers; the step-level `if: !env.ACT` below
     # no-ops the actual scan.
@@ -269,11 +255,14 @@ jobs:
     if: |
       !failure() && !cancelled() && (
         (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-        github.event_name == 'schedule' ||
         github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 90 (not 45): a COLD cache needs a full NVD sync, which measured ~70+ min on
+    # a GitHub runner (10k records per 2-4 min). 45 killed it before it could ever
+    # populate the cache. A warm cache does an incremental update in ~2 min, so
+    # this ceiling is only ever paid on the first run after a cache eviction.
+    timeout-minutes: 90
 
     steps:
 
@@ -340,14 +329,25 @@ jobs:
         # report (see the NVD deserializer bug noted on the run step above).
         if-no-files-found: ignore
 
-  # Per-push image scan (gates 1–3: Paketo CNB build + Trivy image scan +
-  # Spring Boot boot-marker smoke test). The `docker` matrix job is
-  # tag-gated, so without this sibling Paketo base-layer CVEs only surface
-  # on release day. amd64-only, matching the tag-gated `docker` publish job.
-  # Matrix per-service so each Paketo build (~2 min) runs in parallel.
+  # TAG-ONLY image build + hardening gates (1: Paketo CNB build, 2: Trivy image
+  # scan, 3: Spring Boot boot-marker smoke test, 4: container-structure-test
+  # CNB contract). Matrix per-service so the three Paketo builds (~2 min each)
+  # run in parallel. amd64-only, matching the tag-gated `docker` publish job,
+  # which reuses the exact image this job scanned (docker save artifact).
+  #
+  # Was per-push; moved to tags-only for the CI-minutes budget (~6 billed min
+  # per run, paid twice per merged PR). Consequence to accept: a freshly
+  # disclosed CVE in a Paketo base layer now surfaces at release time rather
+  # than on the next push. That is the correct trade here — the finding is
+  # almost always upstream-owned (Paketo must rebuild their helpers), so an
+  # earlier red main just blocks unrelated work.
   image-scan:
     needs: [changes, static-check]
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
+    if: |
+      !failure() && !cancelled() && needs.changes.outputs.code == 'true' && (
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
+        github.event_name == 'workflow_dispatch'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -427,8 +427,9 @@ jobs:
     # doesn't rebuild it. `docker save | gzip` persists the exact image this
     # job built + Trivy-scanned + smoke- + structure-tested; the artifact is
     # loaded and pushed by `docker` AFTER the full validation chain is green
-    # (build/test/integration-test/cve-check/e2e). No early registry push, so
-    # a later gate failure leaves no orphaned tag. Skipped on PR/main pushes.
+    # (build/test/cve-check/e2e). No early registry push, so a later gate
+    # failure leaves no orphaned tag. (This whole job is tag-gated now, so the
+    # `if:` below is belt-and-braces for a workflow_dispatch run.)
     - name: Save scanned image for publish
       if: startsWith(github.ref, 'refs/tags/v')
       run: docker save '${{ matrix.service }}:e2e' | gzip > '/tmp/${{ matrix.service }}-image.tar.gz'
@@ -446,14 +447,20 @@ jobs:
   # runs e2e/e2e-test.sh through the LoadBalancer-exposed pizza-store.
   #
   # Trigger policy:
-  #   - Every push to main and every tag push (baseline coverage)
-  #   - Pull requests labelled `run-e2e` (opt-in for feature branches)
+  #   - Tag pushes (release gate)
   #   - Pull requests where changes.e2e=='true' (e2e-relevant paths)
+  #   - Pull requests labelled `run-e2e` (opt-in for docs-ish branches)
   #   - Manual runs via workflow_dispatch
   #
-  # KinD + image-build + Dapr install runs ~10-15 min on GitHub runners, so
-  # we keep it off every PR by default and rely on static-check/build/test
-  # to catch most bugs early.
+  # NOT on merge-to-main pushes: with squash-merge the commit that lands on main
+  # is byte-identical to the PR head e2e already ran against, so the main-push
+  # run re-tested the same tree for ~6 billed minutes. Residual risk accepted:
+  # a semantic conflict between two PRs merged close together would surface at
+  # the next PR's e2e (or the release tag's) rather than immediately on main.
+  #
+  # KinD + image-build + Dapr install runs ~5-6 min on GitHub runners, so it's
+  # off by default on PRs that don't touch e2e-relevant paths; static-check +
+  # build + test catch most bugs earlier and cheaper.
   e2e:
     needs: [changes, build, test]
     # Explicit `if:` strips GitHub's implicit success() gate, so a failed
@@ -462,7 +469,7 @@ jobs:
     # `if:` starting with `!` is not valid YAML flow syntax.
     if: |
       !failure() && !cancelled() && (
-        (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) ||
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
         (github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'run-e2e') || needs.changes.outputs.e2e == 'true')) ||
         github.event_name == 'workflow_dispatch'
       )
@@ -690,8 +697,8 @@ jobs:
   # tested (handed over as a gzip'd `docker save` artifact). It only
   # `docker load`s + pushes the `:<version>-amd64` staging tag. Publishing
   # still gates on the full validation chain via `needs:` (build/test/
-  # integration-test/cve-check/e2e), and `needs: image-scan` guarantees the
-  # scan gate passed and the artifact exists. The downstream
+  # cve-check/e2e — `test` covers unit + integration), and `needs: image-scan`
+  # guarantees the scan gate passed and the artifact exists. The downstream
   # `docker-manifest` job then promotes the staging tag to `:<version>` +
   # `:latest` and cosign-signs the image digest.
   #
@@ -699,7 +706,9 @@ jobs:
   # with no cross-build support, and arm64 publishing was intentionally
   # dropped.
   docker:
-    needs: [static-check, build, test, integration-test, cve-check, e2e, image-scan]
+    # `test` now covers unit + integration + coverage (the separate
+    # integration-test job was merged into it).
+    needs: [static-check, build, test, cve-check, e2e, image-scan]
     # Explicit `if:` strips GitHub's implicit success() check — must
     # re-assert !failure() && !cancelled() so a failed needs-chain on a
     # tag push blocks the publish path. Block form because single-line
@@ -864,16 +873,17 @@ jobs:
 
   ci-pass:
     if: always()
-    needs: [changes, static-check, build, test, integration-test, cve-check, image-scan, e2e, e2e-shared, docker, docker-manifest]
+    needs: [changes, static-check, build, test, cve-check, image-scan, e2e, e2e-shared, e2e-prod-backends, docker, docker-manifest]
     timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:
       - name: Verify all jobs passed
         run: |
-          # docker + docker-manifest are tag-gated; treat their 'skipped'
-          # result on non-tag runs as a pass. Code-gated jobs
-          # (static-check/build/test/IT/image-scan) are also legitimately
-          # 'skipped' on docs-only PRs. Any 'failure'/'cancelled' fails the gate.
+          # 'skipped' is a PASS here — most jobs are legitimately skipped by
+          # design: docker/docker-manifest/cve-check/image-scan are tag-gated,
+          # e2e is PR+tag-gated, e2e-shared/e2e-prod-backends are cron-gated,
+          # and every code-gated job is skipped on a docs-only PR. Only an
+          # actual 'failure'/'cancelled' fails the gate.
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
             echo "One or more required jobs failed"
             exit 1

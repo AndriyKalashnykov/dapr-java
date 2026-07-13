@@ -659,8 +659,14 @@ kind-create: deps-check
 		--wait --timeout $(DAPR_HELM_TIMEOUT)
 	@echo "KinD cluster ready."
 
-#kind-deploy: @ Build + scan app images, load into KinD, apply manifests, wait for rollout
-kind-deploy: kind-create image-build image-scan
+#kind-deploy: @ Build app images, load into KinD, apply manifests, wait for rollout
+# NOTE: image-build only — `image-scan` is deliberately NOT a prerequisite. The
+# image CVE/hardening gates belong to the release path (`make pre-release`, run
+# by `make release`, and the tag-gated CI `image-scan` job); wiring them into the
+# deploy path made every `make e2e` (and every CI e2e run) pay a full Paketo
+# rebuild + Trivy scan, and made a freshly-disclosed upstream Paketo CVE fail the
+# e2e — a functional test — for a reason that has nothing to do with functionality.
+kind-deploy: kind-create image-build
 	@echo "--- Ensuring namespace $(K8S_NAMESPACE) ---"
 	@$(KUBECTL_CLUSTER) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_CLUSTER) apply -f -
 	@echo "--- Loading images into KinD cluster ---"
@@ -823,7 +829,8 @@ kind-down: kind-undeploy kind-destroy
 # instead of k8s/components-e2e.yaml (redis). The app manifests are unchanged —
 # same component names (kvstore/pubsub), different backing store — so this proves
 # the withdrawn-Bitnami replacement manifests actually run end-to-end.
-kind-deploy-prod-backends: kind-create image-build image-scan
+# image-build only (no image-scan) — same rationale as kind-deploy above.
+kind-deploy-prod-backends: kind-create image-build
 	@echo "--- Ensuring namespace $(K8S_NAMESPACE) ---"
 	@$(KUBECTL_CLUSTER) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_CLUSTER) apply -f -
 	@echo "--- Loading images into KinD cluster ---"
