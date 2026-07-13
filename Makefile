@@ -510,6 +510,17 @@ cve-check: deps-check
 	@NVD_API_KEY="$$NVD_API_KEY" OSS_INDEX_USER="$$OSS_INDEX_USER" OSS_INDEX_TOKEN="$$OSS_INDEX_TOKEN" \
 		bash scripts/cve-check.sh
 
+#nvd-refresh: @ Refresh the NVD database only (no scan, cannot fail on a CVE) — keeps the CI cache warm so tag-time cve-check is fast
+nvd-refresh: deps-check
+	@# `dependency-check:update-only` downloads the NVD DB and analyzes NOTHING.
+	@# GitHub evicts an Actions cache after 7 days without a hit, and cve-check
+	@# now runs on TAGS only — so without a weekly warmer the cache is always
+	@# cold at release time and every release pays a full ~70-90 min NVD sync.
+	@# This target is what the weekly `nvd-cache-refresh` CI job runs (~2-3 min
+	@# once warm). Best-effort: a transient NVD outage warns and exits 0.
+	@NVD_API_KEY="$$NVD_API_KEY" OSS_INDEX_USER="$$OSS_INDEX_USER" OSS_INDEX_TOKEN="$$OSS_INDEX_TOKEN" \
+		bash scripts/cve-check.sh --update-only
+
 #cve-check-selftest: @ Mutation-prove the cve-check log classifiers (no network)
 cve-check-selftest:
 	@bash scripts/cve-check.sh --self-test
