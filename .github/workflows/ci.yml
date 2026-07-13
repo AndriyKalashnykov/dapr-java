@@ -276,30 +276,37 @@ jobs:
         path: '**/target/site/jacoco/'
         retention-days: 14
 
-  # Weekly NVD-database WARMER. Not a gate — it refreshes the cached NVD H2 DB
+  # ON-DEMAND NVD-database WARMER. Not a gate — it refreshes the cached NVD H2 DB
   # and analyzes NOTHING (`dependency-check:update-only`), so it CANNOT fail on a
   # CVE and can never redden `main`.
   #
-  # Why it must exist: GitHub evicts an Actions cache after 7 days without a HIT,
-  # and `cve-check` now runs on TAG PUSHES ONLY. Unless this repo is tagged more
-  # often than weekly, the NVD cache would therefore ALWAYS be cold at release
-  # time and every release would pay a full ~70-90 min NVD sync. Tag-gating the
-  # GATE was right; it just left the CACHE with nobody to keep it warm. This job
-  # is that somebody: ~2-3 min/week once warm, and tag-time cve-check stays fast.
+  # `continue-on-error` because a transient NVD outage must not redden the run —
+  # the cache is an optimization, and failing over it would reintroduce the exact
+  # "red CI for an upstream problem" this rework removed. The script's update-only
+  # path already exits 0 with a ::warning:: on a 503; this is defence in depth for
+  # anything it doesn't classify.
+  # MANUAL ONLY (`workflow_dispatch` → only: nvd-cache-refresh). Deliberately NOT
+  # on the cron: the owner opted out of paying a weekly NVD refresh (and its
+  # one-time ~70-90 min cold bootstrap) out of the minutes budget.
   #
-  # `continue-on-error` because a transient NVD outage must not redden the weekly
-  # run — the cache is an optimization, and failing over it would reintroduce the
-  # exact "red Monday for an upstream problem" this rework removed. The script's
-  # update-only path already exits 0 with a ::warning:: on a 503; this is defence
-  # in depth for anything it doesn't classify.
+  # CONSEQUENCE, stated plainly: nothing keeps the NVD cache warm any more. GitHub
+  # evicts a cache after 7 days without a hit and `cve-check` runs on tags only, so
+  # unless this repo is tagged more often than weekly, EVERY RELEASE PAYS A FULL
+  # ~70-90 MIN COLD NVD SYNC inside the `cve-check` job (whose timeout is raised to
+  # 120 min for exactly that reason). That is a deliberate, accepted trade: no
+  # weekly spend, a slow release-day scan.
+  #
+  # To make a release fast, dispatch THIS job first (Actions → CI → Run workflow →
+  # only: nvd-cache-refresh), let it populate `nvd-db-v2-<ISO-week>`, then push the
+  # tag within 7 days — `cve-check` will then restore a warm cache and finish in
+  # ~2-3 min instead of ~70-90.
   nvd-cache-refresh:
     if: |
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","nvd-cache-refresh"]'), inputs.only))
+      github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","nvd-cache-refresh"]'), inputs.only)
     runs-on: ubuntu-latest
     continue-on-error: true
-    # A cold bootstrap (no cache at all) is a full NVD sync: ~70-90 min. Every
-    # subsequent weekly run is an incremental update in ~2-3 min.
+    # A cold bootstrap (no cache at all) is a full NVD sync: ~70-90 min. A run
+    # against an existing cache is an incremental update in ~2-3 min.
     timeout-minutes: 90
 
     steps:
@@ -369,11 +376,15 @@ jobs:
         (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","cve-check"]'), inputs.only))
       )
     runs-on: ubuntu-latest
-    # 90 (not 45): a COLD cache needs a full NVD sync, which measured ~70+ min on
-    # a GitHub runner (10k records per 2-4 min). 45 killed it before it could ever
-    # populate the cache. A warm cache does an incremental update in ~2 min, so
-    # this ceiling is only ever paid on the first run after a cache eviction.
-    timeout-minutes: 90
+    # 120 (was 45, then 90): a COLD cache needs a full NVD sync, measured ~70+ min
+    # on a GitHub runner (10k records per 2-4 min); 45 killed it mid-download every
+    # time. And since `nvd-cache-refresh` is now MANUAL-ONLY (no weekly warmer), a
+    # cold cache is the DEFAULT at release time — GitHub evicts after 7 days without
+    # a hit and this repo is tagged less often than weekly. So this ceiling is not a
+    # rare worst case any more, it is the normal path: give it real headroom, because
+    # being killed at the timeout is what produced the never-completes-a-scan loop in
+    # the first place. Dispatch `nvd-cache-refresh` before tagging to make it fast.
+    timeout-minutes: 120
 
     steps:
 
