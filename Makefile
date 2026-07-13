@@ -448,14 +448,16 @@ ci-run: deps
 	@# (moby/moby#49228) where a leftover container's RWLayer is nil,
 	@# producing exit 137 that looks like OOM but is a daemon bug.
 	@docker container prune -f 2>/dev/null || true
-	@# Jobs are invoked one at a time via `act --job`. On real GitHub runners
-	@# `test` and `integration-test` run in parallel (each on its own VM with
-	@# its own network), but under act both jobs share the host Docker daemon
-	@# and would collide on Testcontainers-Dapr's `DEFINED_PORT` (8080).
-	@# Serializing here keeps `ci-run` honest locally without slowing down
-	@# GitHub CI.
+	@# Jobs are invoked one at a time via `act --job`. The list MUST match the
+	@# real job names in .github/workflows/ci.yml — `act --job <name>` on a job
+	@# that no longer exists runs NOTHING and still exits 0, so a stale entry
+	@# here is a silent fake-green leg. (The CI `test` job now covers unit +
+	@# integration + coverage; the old separate `integration-test` job is gone.)
 	@#
 	@# Skipped jobs:
+	@#   - image-scan: tag-gated on real CI (Paketo build + Trivy + smoke +
+	@#                structure-test, ~2 min per service). Verify via
+	@#                `make image-scan` / `make pre-release`.
 	@#   - e2e:       requires Docker-in-Docker KinD + host-networked
 	@#                cloud-provider-kind; step-level `if: !env.ACT` no-ops
 	@#                the actual test run anyway. Verify via `make e2e`.
@@ -480,7 +482,7 @@ ci-run: deps
 	HEAD=$$(git rev-parse HEAD); \
 	printf '{"repository":{"default_branch":"main","name":"%s","owner":{"login":"%s"}},"before":"%s","after":"%s","ref":"refs/heads/main","pusher":{"name":"local"}}' \
 		"$(APP_NAME)" "local" "$$BEFORE" "$$HEAD" > "$$EVENT_PATH"; \
-	for j in changes static-check build test integration-test; do \
+	for j in changes static-check build test; do \
 		echo ""; \
 		echo "============================================================"; \
 		echo "  act push --job $$j"; \
