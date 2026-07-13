@@ -29,3 +29,29 @@ CVE-2026-32281
 CVE-2026-32282
 CVE-2026-32283
 CVE-2026-33810
+
+# ------------------------------------------------------------
+# Paketo / CNB Go binaries — Go stdlib 1.26.4 (disclosed 2026-07)
+# ------------------------------------------------------------
+# CVE-2026-39822 (HIGH, os.Root symlink following; fixed in Go 1.26.5 / 1.25.12)
+# hits SIX gobinary targets in every spring-boot:build-image output, all compiled
+# by upstream with Go 1.26.4:
+#     /cnb/lifecycle/launcher
+#     /layers/paketo-buildpacks_bellsoft-liberica/helper/helper
+#     /layers/paketo-buildpacks_ca-certificates/helper/helper
+#     /layers/paketo-buildpacks_spring-boot/helper/helper
+#     (+ the two lifecycle launcher SBOM documents that describe them)
+# Same reachability profile as the 1.26.1 block above: these run ONCE at container
+# start (JVM launch + symlink/CA setup) and are not reachable from any application
+# request path; none of them walks an untrusted filesystem tree via os.Root.
+# The fix is exclusively upstream — Paketo/CNB must rebuild against Go 1.26.5+.
+#
+# TIME-BOXED: `exp:` makes trivy re-arm the gate on this date so the waiver cannot
+# quietly become permanent. On expiry, re-run `make image-scan`: if Paketo has
+# shipped a refreshed builder the CVE is simply gone and this block should be
+# deleted; if not, re-date it with a fresh check of the trackers below.
+#
+# Upstream tracker: https://github.com/buildpacks/lifecycle/releases
+#                   https://github.com/paketo-buildpacks/spring-boot/issues
+#                   https://github.com/paketo-buildpacks/ca-certificates/issues
+CVE-2026-39822 exp:2026-08-17
