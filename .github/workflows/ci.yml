@@ -93,6 +93,18 @@ jobs:
             - '.github/workflows/ci.yml'
             - 'e2e/**'
             - 'scripts/**'
+            # `.mise.toml` pins the ENTIRE e2e toolchain — kind, kubectl, helm,
+            # websocat. A Renovate bump to any of them can break `make e2e` while
+            # touching no Java, no manifest, and no script. This used to be caught
+            # by the merge-to-main e2e run; that run is gone (squash-merge makes it
+            # a duplicate of the PR run), so without this filter entry a bad kind /
+            # kubectl / helm bump would reach `main` with e2e never having run on
+            # it, and surface only on the weekly cron — days later, on someone
+            # else's change.
+            - '.mise.toml'
+            # e2e ends with a STRICT OWASP ZAP baseline scan gated by these rules;
+            # editing the ignore list changes whether e2e passes.
+            - '.zap/**'
 
   static-check:
     needs: [changes]
