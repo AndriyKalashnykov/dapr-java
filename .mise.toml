@@ -32,3 +32,5 @@ kubeconform = "0.7.0"
 # only surface at runtime. Driven by `make image-test` and the CI
 # `image-scan` job's Structure test step. Used by /image-test.
 "aqua:GoogleContainerTools/container-structure-test" = "1.22.1"
+
+# probe: verifying .mise.toml triggers the e2e paths filter (PR will be closed)
